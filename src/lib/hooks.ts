@@ -30,22 +30,33 @@ export function useThemeEffect(): void {
   }, [theme])
 }
 
-/** Проверяет, есть ли реальный интернет (HEAD-запрос к надёжному адресу). */
-function checkInternet(): Promise<boolean> {
-  return fetch('https://connectivity-check.gstatic.com/generate_204', {
-    mode: 'no-cors',
-    cache: 'no-store',
-    keepalive: false,
-  })
-    .then(() => true)
-    .catch(() => false)
+/**
+ * Проверяет, есть ли реальный интернет.
+ * Используем GET-запрос — при no-cors ответ непрозрачный, но сам факт успеха = сеть есть.
+ * Добавляем timeout, чтобы не ждать вечно.
+ */
+async function checkInternet(): Promise<boolean> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 3000)
+
+  try {
+    await fetch('https://www.gstatic.com/generate_204', {
+      method: 'GET',
+      mode: 'no-cors',
+      cache: 'no-store',
+      signal: controller.signal,
+    })
+    return true
+  } catch {
+    return false
+  } finally {
+    clearTimeout(timeout)
+  }
 }
 
-/** Возвращает true, когда браузер онлайн. */
+/** Возвращает true, когда браузер реально онлайн (проверка сетью). */
 export function useOnlineStatus(): boolean {
-  const [online, setOnline] = useState(
-    typeof navigator === 'undefined' ? true : navigator.onLine,
-  )
+  const [online, setOnline] = useState(false)
 
   useEffect(() => {
     const on = () => setOnline(true)
@@ -53,7 +64,8 @@ export function useOnlineStatus(): boolean {
     window.addEventListener('online', on)
     window.addEventListener('offline', off)
 
-    // Первая реальная проверка при монтировании
+    // Сначала берём navigator.onLine (мгновенно), потом проверяем сетью
+    setOnline(navigator.onLine)
     checkInternet().then(setOnline)
 
     return () => {
