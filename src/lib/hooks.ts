@@ -30,6 +30,17 @@ export function useThemeEffect(): void {
   }, [theme])
 }
 
+/** Проверяет, есть ли реальный интернет (HEAD-запрос к надёжному адресу). */
+function checkInternet(): Promise<boolean> {
+  return fetch('https://connectivity-check.gstatic.com/generate_204', {
+    mode: 'no-cors',
+    cache: 'no-store',
+    keepalive: false,
+  })
+    .then(() => true)
+    .catch(() => false)
+}
+
 /** Возвращает true, когда браузер онлайн. */
 export function useOnlineStatus(): boolean {
   const [online, setOnline] = useState(
@@ -41,6 +52,10 @@ export function useOnlineStatus(): boolean {
     const off = () => setOnline(false)
     window.addEventListener('online', on)
     window.addEventListener('offline', off)
+
+    // Первая реальная проверка при монтировании
+    checkInternet().then(setOnline)
+
     return () => {
       window.removeEventListener('online', on)
       window.removeEventListener('offline', off)
