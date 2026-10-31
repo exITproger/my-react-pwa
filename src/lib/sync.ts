@@ -29,6 +29,8 @@ export interface SyncPayload {
 }
 
 export type SyncStatus = 'off' | 'syncing' | 'ok' | 'error'
+/** Состояние постоянного канала с сервером. */
+export type ConnectionStatus = 'off' | 'connecting' | 'live' | 'polling'
 
 /* ------------------------------ Токен доступа ---------------------------- */
 
@@ -42,6 +44,13 @@ export function setToken(token: string | null): void {
   if (token) localStorage.setItem(TOKEN_KEY, token)
   else localStorage.removeItem(TOKEN_KEY)
   emit()
+  if (token) {
+    connectStream()
+    startPolling()
+  } else {
+    closeStream()
+    setConnection('off')
+  }
 }
 
 /* --------------------------------- Хранилище ----------------------------- */
@@ -187,6 +196,7 @@ async function push(): Promise<void> {
 /* --------------------------- Состояние и автосинк ------------------------ */
 
 let status: SyncStatus = getToken() ? 'ok' : 'off'
+let connection: ConnectionStatus = getToken() ? 'connecting' : 'off'
 let lastSyncAt = 0
 let lastError: string | null = null
 let timer: number | null = null
@@ -205,8 +215,20 @@ function setStatus(next: SyncStatus, error: string | null = null): void {
   emit()
 }
 
+function setConnection(next: ConnectionStatus): void {
+  if (connection === next) return
+  connection = next
+  emit()
+}
+
 export function syncState() {
-  return { status, lastSyncAt, lastError, enabled: !!getToken() }
+  return {
+    status,
+    connection,
+    lastSyncAt,
+    lastError,
+    enabled: !!getToken(),
+  }
 }
 
 /** Отправляем данные на сервер (с задержкой, чтобы не долбить его на каждое нажатие). */
@@ -270,13 +292,122 @@ function schedulePush(): void {
   pushTimer = window.setTimeout(() => {
     pushTimer = null
     void pushNow()
-  }, 1500)
+  }, 500)
 }
 
-function startLoop(): void {
-  if (timer || typeof window === 'undefined') return
-  // Периодическая подтяжка данных с другого устройства.
-  timer = window.setInterval(() => void syncNow(), 30_000)
+/* --------------------- Постоянный канал (SSE) + поллинг ------------------ */
+
+let stream: EventSource | null = null
+/** Сколько раз канал обрывался почти сразу после открытия. */
+let streamFailures = 0
+/** До этого момента не пробуем SSE (хостинг может его не поддерживать). */
+let streamDisabledUntil = 0
+let openedAt = 0
+let reconnectTimer: number | null = null
+
+const POLL_LIVE_MS = 15_000
+const POLL_FALLBACK_MS = 5_000
+
+function closeStream(): void {
+  if (stream) {
+    stream.close()
+    stream = null
+  }
+  if (reconnectTimer) {
+    window.clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
+}
+
+function connectStream(): void {
+  if (typeof window === 'undefined') return
+  const token = getToken()
+  if (!token) {
+    closeStream()
+    setConnection('off')
+    return
+  }
+  // Старые браузеры без EventSource — остаётся автоматический опрос.
+  if (typeof EventSource === 'undefined') {
+    setConnection('polling')
+    return
+  }
+  if (stream || Date.now() < streamDisabledUntil) return
+
+  setConnection('connecting')
+  const source = new EventSource(
+    `/api/stream?token=${encodeURIComponent(token)}`,
+  )
+  stream = source
+  openedAt = Date.now()
+
+  source.addEventListener('ready', () => {
+    streamFailures = 0
+    setConnection('live')
+    // Пока канал был закрыт, могли появиться изменения.
+    void syncNow()
+  })
+
+  source.addEventListener('sync', () => {
+    void syncNow()
+  })
+
+  source.onerror = () => {
+    if (stream !== source) return
+    setConnection('polling')
+    // Соединение прожило меньше 10 секунд — похоже, хостинг режет стрим.
+    if (Date.now() - openedAt < 10_000) streamFailures += 1
+    if (streamFailures >= 3) {
+      // Переключаемся на частый опрос и не мучаем сервер стримом.
+      streamDisabledUntil = Date.now() + 5 * 60_000
+      closeStream()
+      startPolling()
+      return
+    }
+    // EventSource переподключается сам, но подстрахуемся.
+    if (source.readyState === EventSource.CLOSED) {
+      closeStream()
+      reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = null
+        connectStream()
+      }, 3000)
+    }
+  }
+}
+
+function startPolling(): void {
+  if (timer) window.clearInterval(timer)
+  const fallback = Date.now() < streamDisabledUntil
+  const interval = fallback ? POLL_FALLBACK_MS : POLL_LIVE_MS
+  timer = window.setInterval(() => {
+    // Пока канал закрыт, держим данные свежими опросом.
+    void syncNow()
+    // И через некоторое время пробуем постоянный канал снова.
+    if (!stream && Date.now() >= streamDisabledUntil) {
+      streamFailures = 0
+      connectStream()
+    }
+  }, interval)
+}
+
+/** Применяет локальные изменения при закрытии/скрытии страницы. */
+function flushBeforeUnload(): void {
+  const token = getToken()
+  if (!token || !dirty) return
+  try {
+    void fetch('/api/sync', {
+      method: 'PUT',
+      keepalive: true,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(currentPayload()),
+    })
+    dirty = false
+  } catch {
+    /* браузер не дал отправить — данные останутся локально */
+  }
 }
 
 /**
@@ -291,46 +422,45 @@ export function startAutoSync(): () => void {
     settingsStore.subscribe(schedulePush),
   ]
 
-  const onOnline = () => void syncNow()
-  const onVisible = () => {
-    if (document.visibilityState === 'visible') void syncNow()
+  const onOnline = () => {
+    void syncNow()
+    connectStream()
+    startPolling()
   }
+  const onOffline = () => setConnection(getToken() ? 'polling' : 'off')
+  const onVisible = () => {
+    if (document.visibilityState !== 'visible') {
+      flushBeforeUnload()
+      return
+    }
+    void syncNow()
+    connectStream()
+    startPolling()
+  }
+  const onPageHide = () => flushBeforeUnload()
+
   window.addEventListener('online', onOnline)
+  window.addEventListener('offline', onOffline)
+  window.addEventListener('pagehide', onPageHide)
   document.addEventListener('visibilitychange', onVisible)
 
-  startLoop()
-  if (getToken()) void syncNow()
+  startPolling()
+  if (getToken()) {
+    connectStream()
+    void syncNow()
+  }
 
   return () => {
     unsubscribes.forEach((u) => u())
     window.removeEventListener('online', onOnline)
+    window.removeEventListener('offline', onOffline)
+    window.removeEventListener('pagehide', onPageHide)
     document.removeEventListener('visibilitychange', onVisible)
+    closeStream()
     if (timer) window.clearInterval(timer)
     timer = null
     if (pushTimer) window.clearTimeout(pushTimer)
     pushTimer = null
-  }
-}
-
-/* --------------------------- Проверка сервера ---------------------------- */
-
-export type ServerStorage = 'redis' | 'file' | 'memory' | 'unknown'
-
-/**
- * Узнаёт, на каком хранилище работает сервер.
- * `memory` означает, что пользователи не переживают перезапуск функции:
- * вход со второго устройства в таком режиме работать не будет.
- */
-export async function checkServerHealth(): Promise<ServerStorage> {
-  try {
-    const body = await call<{ storage?: string }>('health')
-    const storage = body?.storage
-    if (storage === 'redis' || storage === 'file' || storage === 'memory') {
-      return storage
-    }
-    return 'unknown'
-  } catch {
-    return 'unknown'
   }
 }
 

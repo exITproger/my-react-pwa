@@ -347,8 +347,7 @@ async function createSession(username) {
   return { token, expiresAt }
 }
 
-async function usernameFromReq(req) {
-  const token = readToken(req)
+async function usernameFromToken(token) {
   if (!token || !SESSION_TOKEN_RE.test(token)) return null
   const store = await getStorage()
   const session = await store.getSession(token)
@@ -358,6 +357,21 @@ async function usernameFromReq(req) {
     return null
   }
   return session.username
+}
+
+async function usernameFromReq(req) {
+  return usernameFromToken(readToken(req))
+}
+
+/** EventSource не умеет задавать заголовки — токен можно передать в query. */
+function tokenFromQuery(req) {
+  const query = (req.url || '').split('?')[1]
+  if (!query) return null
+  try {
+    return new URLSearchParams(query).get('token')
+  } catch {
+    return null
+  }
 }
 
 function normalizeUsername(u) {
@@ -477,6 +491,8 @@ async function handleSync(req, res) {
       updatedAt: Number(body.updatedAt) || Date.now(),
     }
     await store.setData(username, payload)
+    // Мгновенно сообщаем остальным устройствам этого же пользователя.
+    notifyStream(username, payload.updatedAt)
     return json(res, 200, { ok: true, updatedAt: payload.updatedAt })
   }
 
@@ -486,6 +502,138 @@ async function handleSync(req, res) {
     { error: 'Метод не поддерживается' },
     { Allow: 'GET, PUT' },
   )
+}
+
+/* ---------------------- Постоянный канал (SSE) --------------------------- */
+
+/**
+ * Открытые подписки: username -> Set<client>.
+ * client.send(updatedAt) отправляет событие, если отметка изменилась.
+ * @type {Map<string, Set<{send: (updatedAt: number) => void}>>}
+ */
+const streamClients = new Map()
+
+function notifyStream(username, updatedAt) {
+  const clients = streamClients.get(username)
+  if (!clients) return
+  const value = Number(updatedAt) || 0
+  for (const client of [...clients]) {
+    client.send(value)
+  }
+}
+
+const STREAM_POLL_MS = 2000
+const STREAM_HEARTBEAT_MS = 20_000
+/**
+ * На Vercel функция принудительно завершается по maxDuration, поэтому
+ * закрываем канал сами чуть раньше — клиент переподключится или перейдёт
+ * на автоматический опрос.
+ */
+const STREAM_MAX_MS = process.env.VERCEL ? 9000 : 0
+
+/**
+ * GET /api/stream — держит открытое соединение и присылает событие `sync`,
+ * как только данные пользователя на сервере изменились (в т.ч. с другого
+ * устройства или другого инстанса функции: отметка перечитывается из
+ * хранилища каждые 2 секунды).
+ */
+async function handleStream(req, res) {
+  if (req.method !== 'GET') {
+    return json(res, 405, { error: 'Метод не поддерживается' }, { Allow: 'GET' })
+  }
+
+  const username =
+    (await usernameFromReq(req)) ?? (await usernameFromToken(tokenFromQuery(req)))
+  if (!username) return json(res, 401, { error: 'Не авторизован' })
+
+  const store = await getStorage()
+
+  let closed = false
+  let poll = null
+  let heartbeat = null
+  let maxTimer = null
+  let lastUpdatedAt = 0
+
+  const write = (chunk) => {
+    if (closed) return
+    try {
+      res.write(chunk)
+    } catch {
+      cleanup()
+    }
+  }
+
+  function cleanup() {
+    if (closed) return
+    closed = true
+    if (poll) clearInterval(poll)
+    if (heartbeat) clearInterval(heartbeat)
+    if (maxTimer) clearTimeout(maxTimer)
+    const clients = streamClients.get(username)
+    if (clients) {
+      clients.delete(client)
+      if (clients.size === 0) streamClients.delete(username)
+    }
+    try {
+      res.end()
+    } catch {
+      /* соединение уже закрыто */
+    }
+  }
+
+  const client = {
+    send(updatedAt) {
+      if (updatedAt === lastUpdatedAt) return
+      lastUpdatedAt = updatedAt
+      write(`event: sync\ndata: ${JSON.stringify({ updatedAt })}\n\n`)
+    },
+  }
+
+  try {
+    const data = await store.getData(username)
+    lastUpdatedAt = Number(data?.updatedAt) || 0
+  } catch {
+    lastUpdatedAt = 0
+  }
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-store, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  })
+  if (typeof res.flushHeaders === 'function') res.flushHeaders()
+
+  const clients = streamClients.get(username) ?? new Set()
+  clients.add(client)
+  streamClients.set(username, clients)
+
+  // Клиент сам переподключится через 3 секунды, если соединение оборвётся.
+  write('retry: 3000\n\n')
+  write(`event: ready\ndata: ${JSON.stringify({ updatedAt: lastUpdatedAt })}\n\n`)
+
+  poll = setInterval(async () => {
+    if (closed) return
+    try {
+      const data = await store.getData(username)
+      client.send(Number(data?.updatedAt) || 0)
+    } catch {
+      /* хранилище недоступно — попробуем на следующем тике */
+    }
+  }, STREAM_POLL_MS)
+
+  heartbeat = setInterval(() => write(': ping\n\n'), STREAM_HEARTBEAT_MS)
+
+  if (STREAM_MAX_MS > 0) {
+    maxTimer = setTimeout(() => {
+      write('event: bye\ndata: {}\n\n')
+      cleanup()
+    }, STREAM_MAX_MS)
+  }
+
+  req.on('close', cleanup)
+  res.on('close', cleanup)
+  res.on('error', cleanup)
 }
 
 async function handleHealth(req, res) {
@@ -517,6 +665,10 @@ export async function handleRequest(req, res, pathname) {
     }
     if (path === '/api/sync') {
       await handleSync(req, res)
+      return true
+    }
+    if (path === '/api/stream') {
+      await handleStream(req, res)
       return true
     }
     if (path === '/api/health') {

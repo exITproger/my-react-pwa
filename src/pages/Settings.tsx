@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import {
   resetAllData,
   settingsStore,
@@ -8,14 +8,7 @@ import {
   useTasks,
 } from '../lib/storage'
 import { CURRENCIES } from '../lib/api'
-import {
-  checkServerHealth,
-  register,
-  login,
-  logout,
-  useSync,
-  type ServerStorage,
-} from '../lib/sync'
+import { register, login, logout, useSync } from '../lib/sync'
 import {
   sendTestNotification,
   useNotifications,
@@ -41,17 +34,6 @@ export default function SettingsPage() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [authError, setAuthError] = useState<string | null>(null)
-  const [serverStorage, setServerStorage] = useState<ServerStorage>('unknown')
-
-  useEffect(() => {
-    let cancelled = false
-    void checkServerHealth().then((storage) => {
-      if (!cancelled) setServerStorage(storage)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [])
 
   function update(patch: Partial<typeof settings>) {
     settingsStore.update((prev) => ({ ...prev, ...patch }))
@@ -151,19 +133,10 @@ export default function SettingsPage() {
         <h3 className="mb-3 text-sm font-bold text-slate-800 dark:text-slate-100">
           🔄 Синхронизация
         </h3>
-        {serverStorage === 'memory' && (
-          <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-800 dark:border-amber-400/30 dark:bg-amber-500/10 dark:text-amber-200">
-            ⚠️ Сервер работает без постоянного хранилища: аккаунты живут только
-            в памяти одного инстанса. Поэтому вход со второго устройства может
-            отвечать «Неверный логин или пароль». Включите Vercel KV / Upstash
-            Redis и задайте переменные <code>KV_REST_API_URL</code> и{' '}
-            <code>KV_REST_API_TOKEN</code>.
-          </div>
-        )}
         <p className="mb-4 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
           Зарегистрируйте аккаунт для синхронизации между устройствами.
-          Данные хранятся на сервере и обновляются каждые 30 секунд, а также
-          при открытии приложения или выходе из спящего режима.
+          Изменения уходят на сервер сразу после правки, а между устройствами
+          держится постоянный канал связи — обновления приходят без перезагрузки.
         </p>
 
         {sync.enabled ? (
@@ -177,20 +150,38 @@ export default function SettingsPage() {
                 </div>
               </div>
             ) : (
-              <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">
-                <span className="relative flex h-2 w-2">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-                </span>
-                {sync.status === 'syncing' ? 'Синхронизация…' : 'Синхронизировано'}
-                {sync.lastSyncAt && (
-                  <span className="ml-auto text-xs text-slate-400 dark:text-slate-500">
-                    {new Date(sync.lastSyncAt).toLocaleTimeString('ru-RU', {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
+              <div className="space-y-2">
+                <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">
+                  <span className="relative flex h-2 w-2">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
                   </span>
-                )}
+                  {sync.status === 'syncing' ? 'Синхронизация…' : 'Синхронизировано'}
+                  {sync.lastSyncAt && (
+                    <span className="ml-auto text-xs text-slate-400 dark:text-slate-500">
+                      {new Date(sync.lastSyncAt).toLocaleTimeString('ru-RU', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </span>
+                  )}
+                </div>
+                <p className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                  <span
+                    className={`h-2 w-2 rounded-full ${
+                      sync.connection === 'live'
+                        ? 'bg-emerald-500'
+                        : sync.connection === 'connecting'
+                          ? 'bg-amber-400'
+                          : 'bg-slate-400'
+                    }`}
+                  />
+                  {sync.connection === 'live' && 'Постоянная связь с сервером'}
+                  {sync.connection === 'connecting' && 'Подключаемся к серверу…'}
+                  {sync.connection === 'polling' &&
+                    'Связь восстанавливается — данные обновляются автоматически'}
+                  {sync.connection === 'off' && 'Нет связи с сервером'}
+                </p>
               </div>
             )}
             <Button variant="ghost" size="sm" onClick={() => void logout()}>
