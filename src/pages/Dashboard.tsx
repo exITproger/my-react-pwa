@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom'
 import { useHabits, useNotes, useSettings, useTasks } from '../lib/storage'
 import { formatRelative, useCurrency } from '../lib/hooks'
 import {
-  dueLabel,
+  dueLabelWithTime,
   habitStreak,
   toDateKey,
   type Habit,
@@ -238,7 +238,7 @@ export default function Dashboard() {
                   {task.title}
                 </span>
                 <span className="shrink-0 rounded-full bg-rose-50 px-2.5 py-1 text-[11px] font-bold text-rose-600 dark:bg-rose-500/15 dark:text-rose-300">
-                  {dueLabel(task.dueDate)}
+                  {dueLabelWithTime(task.dueDate, task.dueTime)}
                 </span>
               </li>
             ))}

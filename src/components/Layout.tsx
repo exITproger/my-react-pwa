@@ -1,5 +1,8 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import { useOnlineStatus, useThemeEffect } from '../lib/hooks'
+import { useTaskReminderTicker } from '../lib/notifications'
+import { startAutoSync } from '../lib/sync'
+import { useEffect, useRef } from 'react'
 
 const navItems = [
   { to: '/', label: 'Обзор', icon: '🏠', end: true },
@@ -48,6 +51,15 @@ function Logo() {
 
 export default function Layout() {
   useThemeEffect()
+  useTaskReminderTicker()
+
+  // Синхронизация запускается один раз при монтировании Layout.
+  const autoStarted = useRef(false)
+  useEffect(() => {
+    if (autoStarted.current) return
+    autoStarted.current = true
+    return startAutoSync()
+  }, [])
 
   return (
     <div className="flex min-h-screen w-full">

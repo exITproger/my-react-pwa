@@ -8,6 +8,8 @@ export interface Note {
   pinned: boolean
   createdAt: number
   updatedAt: number
+  /** Размер текста для body: 'default' | 'small' | 'large' */
+  textSize?: 'default' | 'small' | 'large'
 }
 
 export type NoteColor = 'default' | 'amber' | 'green' | 'blue' | 'pink' | 'violet'
@@ -27,6 +29,12 @@ export interface Task {
   priority: TaskPriority
   /** Срок в формате YYYY-MM-DD */
   dueDate?: string
+  /** Время дедлайна в формате HH:MM (срок считается вместе с dueDate) */
+  dueTime?: string
+  /** Прислать уведомление-напоминание о задаче */
+  remind?: boolean
+  /** Произвольные заметки по задаче */
+  notes?: string
   tags: string[]
   subtasks: Subtask[]
   createdAt: number
@@ -168,6 +176,32 @@ export function dueLabel(dueDate?: string): string {
   if (status === 'tomorrow') return 'Завтра'
   const due = new Date(dueDate as string)
   return due.toLocaleDateString('ru-RU', { day: '2-digit', month: 'short' })
+}
+
+/** Собирает из даты и времени единую метку (локальное время). */
+export function dueDateTime(dueDate?: string, dueTime?: string): number | null {
+  if (!dueDate) return null
+  const [y, m, d] = dueDate.split('-').map(Number)
+  if (!y || !m || !d) return null
+  if (!dueTime) return new Date(y, m - 1, d, 0, 0, 0, 0).getTime()
+  const [hh, mm] = dueTime.split(':').map(Number)
+  return new Date(y, m - 1, d, hh || 0, mm || 0, 0, 0).getTime()
+}
+
+/** Срок с указанием времени, если оно задано: «Сегодня, 18:30». */
+export function dueLabelWithTime(
+  dueDate?: string,
+  dueTime?: string,
+): string {
+  const label = dueLabel(dueDate)
+  if (!label) return ''
+  return dueTime ? `${label}, ${dueTime}` : label
+}
+
+/** Полный срок в виде Date для сравнений и уведомления. */
+export function taskDueDate(task: Task): Date | null {
+  const ms = dueDateTime(task.dueDate, task.dueTime)
+  return ms === null ? null : new Date(ms)
 }
 
 /** Все уникальные теги из набора элементов. */

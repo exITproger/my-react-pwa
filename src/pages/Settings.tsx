@@ -8,6 +8,7 @@ import {
   useTasks,
 } from '../lib/storage'
 import { CURRENCIES } from '../lib/api'
+import { register, login, logout, useSync } from '../lib/sync'
 import type { ThemeMode } from '../lib/types'
 import { Button, Card, PageHeader, Select } from '../components/ui'
 
@@ -22,7 +23,12 @@ export default function SettingsPage() {
   const notes = useNotes()
   const tasks = useTasks()
   const habits = useHabits()
+  const sync = useSync()
   const [confirmReset, setConfirmReset] = useState(false)
+  const [authForm, setAuthForm] = useState<'register' | 'login' | null>(null)
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [authError, setAuthError] = useState<string | null>(null)
 
   function update(patch: Partial<typeof settings>) {
     settingsStore.update((prev) => ({ ...prev, ...patch }))
@@ -39,9 +45,26 @@ export default function SettingsPage() {
     { icon: '🔥', label: 'Привычек', value: habits.length },
   ]
 
+  const handleAuth = async () => {
+    setAuthError(null)
+    if (!authForm) return
+    try {
+      if (authForm === 'register') {
+        await register(username.trim(), password)
+      } else {
+        await login(username.trim(), password)
+      }
+      setAuthForm(null)
+      setUsername('')
+      setPassword('')
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
   return (
     <div className="space-y-5">
-      <PageHeader title="Настройки" subtitle="Внешний вид и данные" />
+      <PageHeader title="Настройки" subtitle="Внешний вид, данные, синхронизация" />
 
       {/* Тема */}
       <Card className="animate-slide-up">
@@ -56,7 +79,7 @@ export default function SettingsPage() {
               onClick={() => update({ theme: t.value })}
               className={`flex flex-col items-center gap-1.5 rounded-2xl border px-3 py-4 text-xs font-bold transition-all duration-300 active:scale-95 ${
                 settings.theme === t.value
-                  ? 'border-brand-500 bg-gradient-to-br from-brand-50 to-violet-50 text-brand-700 shadow-md dark:from-brand-500/15 dark:to-violet-500/15 dark:text-brand-100'
+                  ? 'border-brand-500 bg-linear-to-br from-brand-50 to-violet-50 text-brand-700 shadow-md dark:from-brand-500/15 dark:to-violet-500/15 dark:text-brand-100'
                   : 'border-white/60 bg-white/60 text-slate-600 hover:border-brand-200 dark:border-white/10 dark:bg-white/5 dark:text-slate-300'
               }`}
             >
@@ -98,6 +121,91 @@ export default function SettingsPage() {
         <p className="mt-2 text-xs text-slate-400">
           Курс подгружается онлайн и кэшируется для офлайн-просмотра.
         </p>
+      </Card>
+
+      {/* Синхронизация */}
+      <Card className="animate-slide-up">
+        <h3 className="mb-3 text-sm font-bold text-slate-800 dark:text-slate-100">
+          🔄 Синхронизация
+        </h3>
+        <p className="mb-4 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+          Зарегистрируйте аккаунт для синхронизации между устройствами.
+          Данные хранятся на сервере и обновляются каждые 30 секунд, а также
+          при открытии приложения или выходе из спящего режима.
+        </p>
+
+        {sync.enabled ? (
+          <div className="space-y-3">
+            <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+              </span>
+              Синхронизировано
+              {sync.lastSyncAt && (
+                <span className="ml-auto text-xs text-slate-400 dark:text-slate-500">
+                  {new Date(sync.lastSyncAt).toLocaleTimeString('ru-RU', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                </span>
+              )}
+            </div>
+            {sync.status === 'error' && sync.lastError && (
+              <p className="text-xs text-rose-500 dark:text-rose-300">{sync.lastError}</p>
+            )}
+            <Button variant="ghost" size="sm" onClick={() => logout()}>
+              Выйти из аккаунта
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {authForm ? (
+              <>
+                <div className="space-y-2">
+                  <input
+                    type="text"
+                    placeholder="Логин"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAuth()}
+                    className="w-full rounded-2xl border border-black/5 bg-white/80 px-4 py-2.5 text-sm text-slate-800 outline-none transition-all duration-200 placeholder:text-slate-400 focus:border-brand-400 focus:bg-white focus:ring-4 focus:ring-brand-100 dark:border-white/10 dark:bg-slate-900/40 dark:text-slate-100 dark:focus:bg-slate-900/60 dark:focus:ring-brand-500/20"
+                  />
+                  <input
+                    type="password"
+                    placeholder="Пароль"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAuth()}
+                    className="w-full rounded-2xl border border-black/5 bg-white/80 px-4 py-2.5 text-sm text-slate-800 outline-none transition-all duration-200 placeholder:text-slate-400 focus:border-brand-400 focus:bg-white focus:ring-4 focus:ring-brand-100 dark:border-white/10 dark:bg-slate-900/40 dark:text-slate-100 dark:focus:bg-slate-900/60 dark:focus:ring-brand-500/20"
+                  />
+                </div>
+                {authError && (
+                  <p className="text-xs text-rose-500 dark:text-rose-300">
+                    {authError}
+                  </p>
+                )}
+                <div className="flex gap-2">
+                  <Button onClick={handleAuth}>
+                    {authForm === 'register' ? 'Зарегистрироваться' : 'Войти'}
+                  </Button>
+                  <Button variant="ghost" onClick={() => setAuthForm(null)}>
+                    Отмена
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={() => setAuthForm('login')}>
+                  Войти
+                </Button>
+                <Button variant="soft" onClick={() => setAuthForm('register')}>
+                  Зарегистрироваться
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
       </Card>
 
       {/* Данные */}

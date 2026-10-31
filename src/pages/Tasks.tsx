@@ -3,7 +3,7 @@ import { tasksStore, useTasks } from '../lib/storage'
 import {
   collectTags,
   createId,
-  dueLabel,
+  dueLabelWithTime,
   dueStatus,
   toDateKey,
   type DueStatus,
@@ -11,6 +11,7 @@ import {
   type Task,
   type TaskPriority,
 } from '../lib/types'
+import { notificationPermission } from '../lib/notifications'
 import {
   Button,
   EmptyState,
@@ -20,6 +21,7 @@ import {
   ProgressBar,
   Select,
   Tag,
+  Textarea,
 } from '../components/ui'
 
 type Filter = 'all' | 'active' | 'done' | 'today'
@@ -52,9 +54,13 @@ export default function Tasks() {
   const [title, setTitle] = useState('')
   const [priority, setPriority] = useState<TaskPriority>('medium')
   const [dueDate, setDueDate] = useState('')
+  const [dueTime, setDueTime] = useState('')
+  const [remind, setRemind] = useState(false)
   const [filter, setFilter] = useState<Filter>('all')
   const [activeTag, setActiveTag] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
+  /** Задача, открытая в модалке редактирования. */
+  const [editing, setEditing] = useState<Task | null>(null)
 
   const today = toDateKey(new Date())
   const doneCount = tasks.filter((t) => t.done).length
@@ -86,6 +92,8 @@ export default function Tasks() {
       done: false,
       priority,
       dueDate: dueDate || undefined,
+      dueTime: dueDate && dueTime ? dueTime : undefined,
+      remind: remind || undefined,
       tags: [],
       subtasks: [],
       createdAt: Date.now(),
@@ -93,6 +101,20 @@ export default function Tasks() {
     tasksStore.set([task, ...tasks])
     setTitle('')
     setDueDate('')
+    setDueTime('')
+    setRemind(false)
+    if (remind) void ensureNotifyPermission()
+  }
+
+  async function ensureNotifyPermission() {
+    if (notificationPermission() !== 'default') return
+    if ('Notification' in window) {
+      try {
+        await Notification.requestPermission()
+      } catch {
+        /* ignore */
+      }
+    }
   }
 
   function patch(id: string, changes: Partial<Task>) {
@@ -174,32 +196,54 @@ export default function Tasks() {
       </div>
 
       {/* Добавление */}
-      <div className="animate-slide-up flex flex-col gap-2 sm:flex-row">
-        <Input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && addTask()}
-          placeholder="Что нужно сделать?"
-          className="flex-1"
-        />
-        <Input
-          type="date"
-          value={dueDate}
-          onChange={(e) => setDueDate(e.target.value)}
-          className="sm:w-40"
-        />
-        <Select
-          value={priority}
-          onChange={(e) => setPriority(e.target.value as TaskPriority)}
-          className="sm:w-32"
-        >
-          {Object.entries(PRIORITY_LABEL).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </Select>
-        <Button onClick={addTask}>＋</Button>
+      <div className="animate-slide-up space-y-2">
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && addTask()}
+            placeholder="Что нужно сделать?"
+            className="flex-1"
+          />
+          <Select
+            value={priority}
+            onChange={(e) => setPriority(e.target.value as TaskPriority)}
+            className="sm:w-32"
+          >
+            {Object.entries(PRIORITY_LABEL).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </Select>
+          <Button onClick={addTask}>＋</Button>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            type="date"
+            value={dueDate}
+            onChange={(e) => setDueDate(e.target.value)}
+            className="w-auto flex-1 sm:flex-none"
+          />
+          <Input
+            type="time"
+            value={dueTime}
+            onChange={(e) => setDueTime(e.target.value)}
+            disabled={!dueDate}
+            className="w-auto flex-1 sm:flex-none disabled:opacity-50"
+            title="Время дедлайна"
+          />
+          <label className="flex cursor-pointer select-none items-center gap-2 rounded-2xl border border-white/60 bg-white/60 px-3 py-2 text-xs font-semibold text-slate-600 transition dark:border-white/10 dark:bg-white/5 dark:text-slate-300">
+            <input
+              type="checkbox"
+              checked={remind}
+              disabled={!dueDate}
+              onChange={(e) => setRemind(e.target.checked)}
+              className="h-4 w-4 accent-brand-500 disabled:opacity-40"
+            />
+            🔔 Напомнить
+          </label>
+        </div>
       </div>
 
       {/* Фильтры */}
@@ -269,7 +313,7 @@ export default function Tasks() {
               <li
                 key={task.id}
                 style={{ animationDelay: `${Math.min(i * 30, 210)}ms` }}
-                className="animate-slide-up overflow-hidden rounded-2xl border border-white/60 bg-white/70 shadow-sm backdrop-blur-xl transition-all duration-300 hover:shadow-md dark:border-white/10 dark:bg-white/[0.06]"
+                className="animate-slide-up overflow-hidden rounded-2xl border border-white/60 bg-white/70 shadow-sm backdrop-blur-xl transition-all duration-300 hover:shadow-md dark:border-white/10 dark:bg-white/6"
               >
                 <div className="flex items-center gap-3 px-4 py-3">
                   <button
@@ -278,7 +322,7 @@ export default function Tasks() {
                     aria-label="Отметить"
                     className={`grid h-6 w-6 shrink-0 place-items-center rounded-lg border-2 text-xs transition-all duration-200 active:scale-90 ${
                       task.done
-                        ? 'border-brand-500 bg-gradient-to-br from-brand-500 to-violet-500 text-white'
+                        ? 'border-brand-500 bg-linear-to-br from-brand-500 to-violet-500 text-white'
                         : 'border-black/15 hover:border-brand-400 dark:border-white/25'
                     }`}
                   >
@@ -290,16 +334,18 @@ export default function Tasks() {
                   />
                   <div className="min-w-0 flex-1">
                     <p
-                      className={`break-words text-sm font-medium [overflow-wrap:anywhere] ${
-                        task.done
-                          ? 'text-slate-400 line-through'
-                          : 'text-slate-700 dark:text-slate-200'
-                      }`}
+                      className="truncate text-sm font-medium text-slate-700 dark:text-slate-200"
+                      title={task.title}
                     >
                       {task.title}
                     </p>
-                    {(task.tags.length > 0 || task.subtasks.length > 0) && (
-                      <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                    {(task.tags.length > 0 || task.subtasks.length > 0 || task.notes) && (
+                      <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                        {task.notes && (
+                          <span className="max-w-[320px] truncate text-[11px] text-slate-400 dark:text-slate-500">
+                            📎 {task.notes}
+                          </span>
+                        )}
                         {task.subtasks.length > 0 && (
                           <span className="text-[10px] font-semibold text-slate-400">
                             ☑ {subDone}/{task.subtasks.length}
@@ -308,16 +354,29 @@ export default function Tasks() {
                         {task.tags.map((tag) => (
                           <Tag key={tag}>{tag}</Tag>
                         ))}
+                        {task.remind && (
+                          <span className="text-[11px]" title="Напоминание включено">
+                            🔔
+                          </span>
+                        )}
                       </div>
                     )}
                   </div>
                   {task.dueDate && (
                     <span
                       className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold ${DUE_STYLE[status]}`}
+                      title={dueLabelWithTime(task.dueDate, task.dueTime)}
                     >
-                      {dueLabel(task.dueDate)}
+                      {dueLabelWithTime(task.dueDate, task.dueTime)}
                     </span>
                   )}
+                  <IconButton
+                    className="h-8 w-8 shrink-0 text-xs"
+                    onClick={() => setEditing(task)}
+                    title="Редактировать"
+                  >
+                    ✏️
+                  </IconButton>
                   <IconButton
                     className="h-8 w-8 shrink-0 text-xs"
                     onClick={() => setExpanded(isOpen ? null : task.id)}
@@ -336,8 +395,15 @@ export default function Tasks() {
 
                 {isOpen && (
                   <div className="animate-fade-in border-t border-black/5 px-4 py-3 dark:border-white/10">
+                    {/* Заметки по задаче */}
+                    <div className="space-y-1">
+                      <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Заметки</span>
+                      <p className="whitespace-pre-wrap text-xs text-slate-600 dark:text-slate-300">
+                        {task.notes || '—'}
+                      </p>
+                    </div>
                     {/* Подзадачи */}
-                    <div className="space-y-1.5">
+                    <div className="mt-3 space-y-1.5">
                       {task.subtasks.map((sub) => (
                         <div key={sub.id} className="flex items-center gap-2">
                           <button
@@ -377,6 +443,22 @@ export default function Tasks() {
             )
           })}
         </ul>
+      )}
+
+      {/* Модалка редактирования задачи */}
+      {editing && (
+        <TaskEditor
+          task={editing}
+          onSave={(changes) => {
+            patch(editing.id, changes)
+            setEditing(null)
+          }}
+          onClose={() => setEditing(null)}
+          onRemove={(id) => {
+            remove(id)
+            setEditing(null)
+          }}
+        />
       )}
     </div>
   )
@@ -440,6 +522,175 @@ function TagInput({ onAdd }: { onAdd: (tag: string) => void }) {
       >
         #
       </Button>
+    </div>
+  )
+}
+
+/** Модалка редактирования задачи. */
+function TaskEditor({
+  task,
+  onSave,
+  onClose,
+  onRemove,
+}: {
+  task: Task
+  onSave: (changes: Partial<Task>) => void
+  onClose: () => void
+  onRemove: (id: string) => void
+}) {
+  const [draft, setDraft] = useState({ ...task })
+  const [tagInput, setTagInput] = useState('')
+
+  function save() {
+    onSave({
+      title: draft.title.trim() || task.title,
+      dueDate: draft.dueDate || undefined,
+      dueTime: draft.dueTime || undefined,
+      remind: draft.remind || undefined,
+      notes: draft.notes || undefined,
+      priority: draft.priority,
+    })
+  }
+
+  function addTag() {
+    const t = tagInput.trim().replace(/^#/, '').toLowerCase()
+    if (!t || draft.tags.includes(t)) {
+      setTagInput('')
+      return
+    }
+    setDraft({ ...draft, tags: [...draft.tags, t] })
+    setTagInput('')
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 p-0 backdrop-blur-sm sm:items-center sm:p-4"
+      onClick={onClose}
+    >
+      <div
+        className="animate-slide-up max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-t-3xl border border-white/60 bg-white/95 p-5 shadow-2xl sm:rounded-3xl dark:border-white/10 dark:bg-slate-900/95"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-lg font-extrabold text-slate-900 dark:text-white">
+            Редактировать задачу
+          </h3>
+          <IconButton onClick={onClose}>✕</IconButton>
+        </div>
+
+        <Input
+          value={draft.title}
+          onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+          placeholder="Заголовок"
+          className="mb-3 text-base font-bold"
+          autoFocus
+        />
+
+        <div className="mb-3 grid grid-cols-2 gap-2">
+          <Input
+            type="date"
+            value={draft.dueDate || ''}
+            onChange={(e) => setDraft({ ...draft, dueDate: e.target.value })}
+          />
+          <Input
+            type="time"
+            value={draft.dueTime || ''}
+            onChange={(e) => setDraft({ ...draft, dueTime: e.target.value })}
+          />
+        </div>
+
+        <div className="mb-3 flex items-center gap-3">
+          <label className="flex cursor-pointer select-none items-center gap-2 text-sm font-semibold text-slate-600 dark:text-slate-300">
+            <input
+              type="checkbox"
+              checked={!!draft.remind}
+              onChange={(e) => setDraft({ ...draft, remind: e.target.checked })}
+              className="h-4 w-4 accent-brand-500"
+            />
+            🔔 Напомнить
+          </label>
+          <Select
+            value={draft.priority}
+            onChange={(e) =>
+              setDraft({ ...draft, priority: e.target.value as TaskPriority })
+            }
+            className="w-32"
+          >
+            {Object.entries(PRIORITY_LABEL).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </Select>
+        </div>
+
+        <div className="mb-3">
+          <label className="mb-1 block text-xs font-semibold text-slate-500 dark:text-slate-400">
+            Заметки по задаче
+          </label>
+          <Textarea
+            value={draft.notes || ''}
+            onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
+            placeholder="Любые заметки, идеи, ссылки…"
+            rows={4}
+            className="text-sm"
+          />
+        </div>
+
+        {/* Теги */}
+        <div className="mb-4">
+          <div className="mb-2 flex flex-wrap gap-1.5">
+            {draft.tags.map((tag) => (
+              <Tag
+                key={tag}
+                onRemove={() =>
+                  setDraft({
+                    ...draft,
+                    tags: draft.tags.filter((t) => t !== tag),
+                  })
+                }
+              >
+                {tag}
+              </Tag>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <Input
+              value={tagInput}
+              onChange={(e) => setTagInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  addTag()
+                }
+              }}
+              placeholder="Добавить тег"
+              className="text-xs"
+            />
+            <Button size="sm" variant="soft" onClick={addTag}>
+              #
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between">
+          <Button
+            variant="danger"
+            size="sm"
+            onClick={() => {
+              onRemove(task.id)
+            }}
+          >
+            🗑️ Удалить
+          </Button>
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={onClose}>
+              Отмена
+            </Button>
+            <Button onClick={save}>Сохранить</Button>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

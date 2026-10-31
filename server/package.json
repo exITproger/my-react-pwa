@@ -1,0 +1,16 @@
+{
+  "name": "my-den-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Сервер авторизации и синхронизации для PWA «Мой день»",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
