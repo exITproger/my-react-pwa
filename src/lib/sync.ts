@@ -312,6 +312,28 @@ export function startAutoSync(): () => void {
   }
 }
 
+/* --------------------------- Проверка сервера ---------------------------- */
+
+export type ServerStorage = 'redis' | 'file' | 'memory' | 'unknown'
+
+/**
+ * Узнаёт, на каком хранилище работает сервер.
+ * `memory` означает, что пользователи не переживают перезапуск функции:
+ * вход со второго устройства в таком режиме работать не будет.
+ */
+export async function checkServerHealth(): Promise<ServerStorage> {
+  try {
+    const body = await call<{ storage?: string }>('health')
+    const storage = body?.storage
+    if (storage === 'redis' || storage === 'file' || storage === 'memory') {
+      return storage
+    }
+    return 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
+
 export function useSync() {
   const [state, setState] = useState(() => syncState())
   const ref = useRef(state)

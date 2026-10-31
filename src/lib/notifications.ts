@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTasks } from './storage'
-import { taskDueDate, type Task } from './types'
+import { taskDueDate } from './types'
 
 const STORAGE_KEY = 'moy-den:notified-tasks'
 /** Событие для показа напоминания внутри приложения. */
@@ -159,8 +159,25 @@ async function showSystem(reminder: Reminder): Promise<void> {
 }
 
 /**
+ * Тестовое напоминание из настроек: показывает, как всё будет выглядеть.
+ * Возвращает false, если системные уведомления недоступны.
+ */
+export async function sendTestNotification(): Promise<boolean> {
+  const reminder: Reminder = {
+    key: `test@${Date.now()}`,
+    title: 'Тестовое напоминание',
+    body: 'Так выглядит уведомление о задаче в момент дедлайна.',
+    dueAt: Date.now(),
+    overdue: false,
+  }
+  emitReminder(reminder)
+  if (notificationPermission() !== 'granted') return false
+  await showSystem(reminder)
+  return true
+}
+
+/**
  * Проверяет задачи с включённым напоминанием и срабатывает в момент дедлайна.
- *
  * - Баннер внутри приложения показывается всегда, даже без разрешения
  *   на системные уведомления.
  * - Системное уведомление — только если разрешение выдано.
@@ -178,13 +195,16 @@ export function useTaskReminderTicker(): void {
       const now = Date.now()
       const alive = new Set<string>()
 
-      for (const task of tasks as Task[]) {
-        if (task.done || !task.remind) continue
+      for (const task of tasks) {
+        if (!task.remind) continue
         const due = taskDueDate(task)
         if (!due) continue
         const dueAt = due.getTime()
         const key = `${task.id}@${dueAt}`
+        // Отметку храним и для выполненных задач: снятие галочки не должно
+        // вызывать повторное напоминание.
         alive.add(key)
+        if (task.done) continue
         if (dueAt > now) continue
         // Пропущенные напоминания старше суток не показываем.
         if (now - dueAt > 86_400_000) continue

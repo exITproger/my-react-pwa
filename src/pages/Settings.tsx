@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   resetAllData,
   settingsStore,
@@ -8,7 +8,18 @@ import {
   useTasks,
 } from '../lib/storage'
 import { CURRENCIES } from '../lib/api'
-import { register, login, logout, useSync } from '../lib/sync'
+import {
+  checkServerHealth,
+  register,
+  login,
+  logout,
+  useSync,
+  type ServerStorage,
+} from '../lib/sync'
+import {
+  sendTestNotification,
+  useNotifications,
+} from '../lib/notifications'
 import type { ThemeMode } from '../lib/types'
 import { Button, Card, PageHeader, Select } from '../components/ui'
 
@@ -24,11 +35,23 @@ export default function SettingsPage() {
   const tasks = useTasks()
   const habits = useHabits()
   const sync = useSync()
+  const notifications = useNotifications()
   const [confirmReset, setConfirmReset] = useState(false)
   const [authForm, setAuthForm] = useState<'register' | 'login' | null>(null)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [authError, setAuthError] = useState<string | null>(null)
+  const [serverStorage, setServerStorage] = useState<ServerStorage>('unknown')
+
+  useEffect(() => {
+    let cancelled = false
+    void checkServerHealth().then((storage) => {
+      if (!cancelled) setServerStorage(storage)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   function update(patch: Partial<typeof settings>) {
     settingsStore.update((prev) => ({ ...prev, ...patch }))
@@ -128,6 +151,15 @@ export default function SettingsPage() {
         <h3 className="mb-3 text-sm font-bold text-slate-800 dark:text-slate-100">
           🔄 Синхронизация
         </h3>
+        {serverStorage === 'memory' && (
+          <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-800 dark:border-amber-400/30 dark:bg-amber-500/10 dark:text-amber-200">
+            ⚠️ Сервер работает без постоянного хранилища: аккаунты живут только
+            в памяти одного инстанса. Поэтому вход со второго устройства может
+            отвечать «Неверный логин или пароль». Включите Vercel KV / Upstash
+            Redis и задайте переменные <code>KV_REST_API_URL</code> и{' '}
+            <code>KV_REST_API_TOKEN</code>.
+          </div>
+        )}
         <p className="mb-4 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
           Зарегистрируйте аккаунт для синхронизации между устройствами.
           Данные хранятся на сервере и обновляются каждые 30 секунд, а также
@@ -228,6 +260,51 @@ export default function SettingsPage() {
             )}
           </div>
         )}
+      </Card>
+
+      {/* Напоминания */}
+      <Card className="animate-slide-up">
+        <h3 className="mb-3 text-sm font-bold text-slate-800 dark:text-slate-100">
+          🔔 Напоминания
+        </h3>
+        <p className="mb-3 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+          Напоминание о задаче показывается в момент дедлайна: всплывающей
+          карточкой внутри приложения и системным уведомлением, если браузер
+          его разрешил. Пока приложение закрыто, браузер напоминания не
+          присылает — пропущенное за последние сутки появится при следующем
+          открытии.
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <span
+            className={`rounded-full px-3 py-1.5 text-xs font-semibold ${
+              notifications.permission === 'granted'
+                ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300'
+                : notifications.permission === 'denied'
+                  ? 'bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-300'
+                  : 'bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-slate-300'
+            }`}
+          >
+            {notifications.permission === 'granted' && 'Уведомления разрешены'}
+            {notifications.permission === 'denied' && 'Уведомления заблокированы'}
+            {notifications.permission === 'default' && 'Разрешение не выдано'}
+            {notifications.permission === 'unsupported' &&
+              'Браузер не поддерживает системные уведомления'}
+          </span>
+          {notifications.permission === 'default' && (
+            <Button size="sm" onClick={() => void notifications.request()}>
+              Разрешить
+            </Button>
+          )}
+          {notifications.permission === 'granted' && (
+            <Button
+              size="sm"
+              variant="soft"
+              onClick={() => void sendTestNotification()}
+            >
+              Проверить
+            </Button>
+          )}
+        </div>
       </Card>
 
       {/* Данные */}

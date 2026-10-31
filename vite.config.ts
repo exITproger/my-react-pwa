@@ -5,7 +5,16 @@ import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
-  base: './',                                                                                                                                                                 
+  base: './',
+  server: {
+    // В разработке запросы /api/* уходят на локальный сервер (npm run server).
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8787',
+        changeOrigin: true,
+      },
+    },
+  },
   plugins: [
     react(),
     tailwindcss(),
@@ -39,6 +48,8 @@ export default defineConfig({
       },
       workbox: {
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+        // Обработчик клика по уведомлению-напоминанию.
+        importScripts: ['sw-notifications.js'],
       },
       devOptions: {
         enabled: true,
