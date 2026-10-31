@@ -37,6 +37,9 @@ function createMemoryStorage() {
   const sessions = new Map()
   return {
     kind: 'memory',
+    async ping() {
+      return true
+    },
     async getUser(u) {
       return users.get(u) ?? null
     },
@@ -70,6 +73,9 @@ function createMemoryStorage() {
 function createFileStorage(db) {
   return {
     kind: 'file',
+    async ping() {
+      return true
+    },
     async getUser(u) {
       return db.getUser(u)
     },
@@ -130,6 +136,10 @@ function createRedisStorage({ url, token }) {
 
   return {
     kind: 'redis',
+    async ping() {
+      const result = await command('PING')
+      return String(result).toUpperCase() === 'PONG'
+    },
     async getUser(u) {
       return readJson(`den:user:${u}`)
     },
@@ -641,7 +651,19 @@ async function handleHealth(req, res) {
     return json(res, 405, { error: 'Метод не поддерживается' }, { Allow: 'GET' })
   }
   const store = await getStorage()
-  return json(res, 200, { ok: true, storage: store.kind })
+  let reachable = false
+  let detail = null
+  try {
+    reachable = await store.ping()
+  } catch (error) {
+    detail = error instanceof Error ? error.message : String(error)
+  }
+  return json(res, reachable ? 200 : 503, {
+    ok: reachable,
+    storage: store.kind,
+    reachable,
+    ...(detail ? { error: detail } : {}),
+  })
 }
 
 /**
