@@ -11,7 +11,10 @@ import {
   type Task,
   type TaskPriority,
 } from '../lib/types'
-import { notificationPermission } from '../lib/notifications'
+import {
+  requestNotificationPermission,
+  useNotifications,
+} from '../lib/notifications'
 import {
   Button,
   EmptyState,
@@ -51,6 +54,7 @@ const DUE_STYLE: Record<DueStatus, string> = {
 
 export default function Tasks() {
   const tasks = useTasks()
+  const { permission, request: requestPermission } = useNotifications()
   const [title, setTitle] = useState('')
   const [priority, setPriority] = useState<TaskPriority>('medium')
   const [dueDate, setDueDate] = useState('')
@@ -103,19 +107,9 @@ export default function Tasks() {
     setDueDate('')
     setDueTime('')
     setRemind(false)
-    if (remind) void ensureNotifyPermission()
+    if (remind) void requestPermission()
   }
 
-  async function ensureNotifyPermission() {
-    if (notificationPermission() !== 'default') return
-    if ('Notification' in window) {
-      try {
-        await Notification.requestPermission()
-      } catch {
-        /* ignore */
-      }
-    }
-  }
 
   function patch(id: string, changes: Partial<Task>) {
     tasksStore.set(tasks.map((t) => (t.id === id ? { ...t, ...changes } : t)))
@@ -244,6 +238,35 @@ export default function Tasks() {
             🔔 Напомнить
           </label>
         </div>
+        {remind && permission !== 'granted' && (
+          <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50/80 px-3 py-2 text-[11px] leading-relaxed text-amber-800 dark:border-amber-400/30 dark:bg-amber-500/10 dark:text-amber-200">
+            {permission === 'default' && (
+              <>
+                <span>Разрешите уведомления — иначе напоминание не покажется.</span>
+                <Button
+                  size="sm"
+                  variant="soft"
+                  onClick={() => void requestPermission()}
+                >
+                  Разрешить
+                </Button>
+              </>
+            )}
+            {permission === 'denied' && (
+              <span>
+                Уведомления заблокированы в настройках браузера. Напоминание
+                появится внутри приложения, когда оно открыто.
+              </span>
+            )}
+            {permission === 'unsupported' && (
+              <span>
+                Браузер не поддерживает системные уведомления. На iPhone
+                установите приложение на экран «Домой» — тогда напоминания
+                смогут приходить.
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Фильтры */}
@@ -604,7 +627,10 @@ function TaskEditor({
             <input
               type="checkbox"
               checked={!!draft.remind}
-              onChange={(e) => setDraft({ ...draft, remind: e.target.checked })}
+              onChange={(e) => {
+                setDraft({ ...draft, remind: e.target.checked })
+                if (e.target.checked) void requestNotificationPermission()
+              }}
               className="h-4 w-4 accent-brand-500"
             />
             🔔 Напомнить

@@ -2,19 +2,26 @@
  * Единая точка входа API (работает и на Vercel, и локально).
  *
  * Маршруты:
- *   POST /api/auth/register  { username, password } -> { token }
- *   POST /api/auth/login     { username, password } -> { token }
+ *   POST /api/auth/register  { username, password } -> { token, username }
+ *   POST /api/auth/login     { username, password } -> { token, username }
+ *   POST /api/auth/logout    Authorization: Bearer <token> -> { ok }
  *   GET  /api/sync           Authorization: Bearer <token> -> { data }
  *   PUT  /api/sync           Authorization: Bearer <token> + body -> { ok }
+ *   GET  /api/health         -> { ok, storage }
  *
- * Хранилище:
- *   - локально (NODE_ENV != production или есть FILE_DB=1): JSON-файл db.json;
- *   - на Vercel: файловая система эфемерна, поэтому данные держатся в памяти
- *     инстанса функции. Чтобы синхронизация переживала холодные старты,
- *     подключите постоянную базу (Vercel KV / Upstash Redis / Turso) — см.
- *     комментарий в createStorage().
+ * Хранилище выбирается автоматически:
+ *   1. Redis по REST (Vercel KV / Upstash) — если заданы
+ *      KV_REST_API_URL + KV_REST_API_TOKEN либо
+ *      UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN.
+ *      Это единственный вариант, который корректно работает на Vercel:
+ *      пользователи и сессии видны всем инстансам функции и переживают
+ *      холодные старты. Без него телефон и компьютер попадают в разные
+ *      инстансы, и вход со второго устройства отвечает «Неверный логин
+ *      или пароль».
+ *   2. JSON-файл server/db.json — локально или при FILE_DB=1.
+ *   3. Память инстанса — крайний случай, только для отладки.
  */
-import { createHash, randomUUID, timingSafeEqual } from 'crypto'
+import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'crypto'
 import { createRequire } from 'module'
 
 const require = createRequire(import.meta.url)
@@ -26,79 +33,261 @@ function createMemoryStorage() {
   const users = new Map()
   /** @type {Map<string, any>} */
   const data = new Map()
+  /** @type {Map<string, {username: string, expiresAt: number}>} */
+  const sessions = new Map()
   return {
     kind: 'memory',
-    getUser: (u) => users.get(u) ?? null,
-    setUser: (u, rec) => users.set(u, rec),
-    getData: (u) => data.get(u) ?? null,
-    setData: (u, d) => data.set(u, d),
+    async getUser(u) {
+      return users.get(u) ?? null
+    },
+    async setUser(u, rec) {
+      users.set(u, rec)
+    },
+    async getData(u) {
+      return data.get(u) ?? null
+    },
+    async setData(u, d) {
+      data.set(u, d)
+    },
+    async getSession(token) {
+      const session = sessions.get(token)
+      if (!session) return null
+      if (session.expiresAt <= Date.now()) {
+        sessions.delete(token)
+        return null
+      }
+      return session
+    },
+    async setSession(token, username, expiresAt) {
+      sessions.set(token, { username, expiresAt })
+    },
+    async deleteSession(token) {
+      sessions.delete(token)
+    },
   }
 }
 
-function createFileStorage() {
-  const db = require('./db.js')
+function createFileStorage(db) {
   return {
     kind: 'file',
-    getUser: (u) => db.getUser(u),
-    setUser: (u, rec) => db.createUser(u, rec),
-    getData: (u) => db.getData(u),
-    setData: (u, d) => db.setData(u, d),
+    async getUser(u) {
+      return db.getUser(u)
+    },
+    async setUser(u, rec) {
+      db.setUser(u, rec)
+    },
+    async getData(u) {
+      return db.getData(u)
+    },
+    async setData(u, d) {
+      db.setData(u, d)
+    },
+    async getSession(token) {
+      return db.getSession(token)
+    },
+    async setSession(token, username, expiresAt) {
+      db.setSession(token, username, expiresAt)
+    },
+    async deleteSession(token) {
+      db.deleteSession(token)
+    },
   }
 }
 
-let storage = null
+/**
+ * Vercel KV / Upstash Redis через REST API (без дополнительных зависимостей).
+ * Ключи: den:user:<login>, den:data:<login>, den:session:<token>.
+ */
+function createRedisStorage({ url, token }) {
+  async function command(...args) {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(args),
+    })
+    if (!res.ok) {
+      throw new Error(`Redis ответил ${res.status}`)
+    }
+    const payload = await res.json()
+    if (payload?.error) {
+      throw new Error(`Redis: ${payload.error}`)
+    }
+    return payload?.result ?? null
+  }
+
+  async function readJson(key) {
+    const raw = await command('GET', key)
+    if (typeof raw !== 'string' || !raw) return null
+    try {
+      return JSON.parse(raw)
+    } catch {
+      return null
+    }
+  }
+
+  return {
+    kind: 'redis',
+    async getUser(u) {
+      return readJson(`den:user:${u}`)
+    },
+    async setUser(u, rec) {
+      await command('SET', `den:user:${u}`, JSON.stringify(rec))
+    },
+    async getData(u) {
+      return readJson(`den:data:${u}`)
+    },
+    async setData(u, d) {
+      await command('SET', `den:data:${u}`, JSON.stringify(d))
+    },
+    async getSession(t) {
+      return readJson(`den:session:${t}`)
+    },
+    async setSession(t, username, expiresAt) {
+      const ttl = Math.max(1, Math.ceil((expiresAt - Date.now()) / 1000))
+      await command(
+        'SET',
+        `den:session:${t}`,
+        JSON.stringify({ username, expiresAt }),
+        'EX',
+        String(ttl),
+      )
+    },
+    async deleteSession(t) {
+      await command('DEL', `den:session:${t}`)
+    },
+  }
+}
+
+function detectRedisConfig() {
+  const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL
+  const token =
+    process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN
+  return url && token ? { url, token } : null
+}
+
+let storagePromise = null
+
 function getStorage() {
-  if (storage) return storage
+  if (!storagePromise) storagePromise = initStorage()
+  return storagePromise
+}
+
+async function initStorage() {
+  const redis = detectRedisConfig()
+  if (redis) return createRedisStorage(redis)
+
   const useFile =
     process.env.FILE_DB === '1' ||
     (process.env.NODE_ENV !== 'production' && !process.env.VERCEL)
-  storage = useFile ? createFileStorage() : createMemoryStorage()
-  return storage
+  if (useFile) {
+    const db = await import('./db.js')
+    return createFileStorage(db)
+  }
+
+  console.warn(
+    '[api] Постоянное хранилище не настроено: данные живут только в памяти ' +
+      'инстанса. Задайте KV_REST_API_URL и KV_REST_API_TOKEN (Vercel KV / ' +
+      'Upstash Redis), иначе вход со второго устройства не сработает.',
+  )
+  return createMemoryStorage()
 }
 
 /* ------------------------------- Утилиты --------------------------------- */
 
 const MAX_DATA_SIZE = 2 * 1024 * 1024 // 2 MB
 const TOKEN_TTL = 1000 * 60 * 60 * 24 * 90 // 90 дней
-
-/** Активные токены: token -> username. */
-const tokens = new Map()
-
-function hash(password) {
-  return createHash('sha256').update(password).digest('hex')
-}
+const SESSION_TOKEN_RE = /^[A-Za-z0-9_-]{16,128}$/
 
 function safeEqual(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false
   const ba = Buffer.from(a)
   const bb = Buffer.from(b)
   if (ba.length !== bb.length) return false
   return timingSafeEqual(ba, bb)
 }
 
-function json(res, status, body) {
-  res.writeHead(status, { 'Content-Type': 'application/json' })
+/* -------------------------------- Пароли --------------------------------- */
+
+const SCRYPT_KEYLEN = 64
+
+/** scrypt с индивидуальной солью: scrypt$<salt>$<hash>. */
+function hashPassword(password) {
+  const salt = randomBytes(16).toString('hex')
+  const derived = scryptSync(password, salt, SCRYPT_KEYLEN).toString('hex')
+  return `scrypt$${salt}$${derived}`
+}
+
+/** Проверка пароля. Старый формат sha256 поддерживается для миграции. */
+function verifyPassword(password, stored) {
+  if (typeof stored !== 'string' || !stored) return false
+  const [scheme, salt, digest] = stored.split('$')
+  if (scheme === 'scrypt' && salt && digest) {
+    const derived = scryptSync(password, salt, SCRYPT_KEYLEN).toString('hex')
+    return safeEqual(derived, digest)
+  }
+  const legacy = createHash('sha256').update(password).digest('hex')
+  return safeEqual(legacy, stored)
+}
+
+function isLegacyHash(stored) {
+  return typeof stored === 'string' && !stored.startsWith('scrypt$')
+}
+
+/** Хэш-пустышка: выравнивает время ответа для несуществующего логина. */
+const DUMMY_PASSWORD_HASH = hashPassword('dummy-password-for-timing')
+
+/* -------------------------------- Ответы --------------------------------- */
+
+function json(res, status, body, extraHeaders = {}) {
+  if (res.headersSent) return
+  res.writeHead(status, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store',
+    ...extraHeaders,
+  })
   res.end(JSON.stringify(body))
 }
 
 function readJson(req) {
   return new Promise((resolve, reject) => {
-    let raw = ''
+    const chunks = []
+    let size = 0
+    let settled = false
+
+    const fail = (code) => {
+      if (settled) return
+      settled = true
+      req.removeAllListeners('data')
+      req.removeAllListeners('end')
+      req.resume()
+      reject(new Error(code))
+    }
+
     req.on('data', (chunk) => {
-      raw += chunk
-      if (raw.length > MAX_DATA_SIZE) {
-        reject(new Error('too_large'))
-        req.destroy()
-      }
+      if (settled) return
+      size += chunk.length
+      if (size > MAX_DATA_SIZE) return fail('too_large')
+      chunks.push(chunk)
     })
     req.on('end', () => {
-      if (!raw) return resolve(null)
+      if (settled) return
+      settled = true
+      const raw = Buffer.concat(chunks).toString('utf8')
+      if (!raw.trim()) return resolve(null)
       try {
         resolve(JSON.parse(raw))
       } catch {
         reject(new Error('bad_json'))
       }
     })
-    req.on('error', reject)
+    req.on('error', (error) => {
+      if (settled) return
+      settled = true
+      reject(error)
+    })
   })
 }
 
@@ -107,28 +296,68 @@ function parseCookies(header) {
   if (!header) return out
   header.split(';').forEach((part) => {
     const [k, ...v] = part.trim().split('=')
-    if (k) out[k] = decodeURIComponent(v.join('='))
+    if (!k) return
+    try {
+      out[k] = decodeURIComponent(v.join('='))
+    } catch {
+      out[k] = v.join('=')
+    }
   })
   return out
 }
 
-function setCookie(res, name, value) {
-  res.setHeader(
-    'Set-Cookie',
-    `${name}=${encodeURIComponent(value)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${TOKEN_TTL / 1000}`,
+function isSecure(req) {
+  return (
+    req.headers['x-forwarded-proto'] === 'https' ||
+    req.socket?.encrypted === true
   )
 }
 
-function usernameFromReq(req) {
+function setCookie(req, res, name, value, expiresAt) {
+  const maxAge = Math.max(1, Math.floor((expiresAt - Date.now()) / 1000))
+  const secure = isSecure(req) ? '; Secure' : ''
+  res.setHeader(
+    'Set-Cookie',
+    `${name}=${encodeURIComponent(value)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}${secure}`,
+  )
+}
+
+function clearCookie(req, res, name) {
+  const secure = isSecure(req) ? '; Secure' : ''
+  res.setHeader(
+    'Set-Cookie',
+    `${name}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secure}`,
+  )
+}
+
+function readToken(req) {
   const auth = req.headers.authorization || ''
-  let token = auth.startsWith('Bearer ') ? auth.slice(7) : null
-  if (!token) {
-    token = parseCookies(req.headers.cookie)['den_token'] || null
+  if (auth.startsWith('Bearer ')) {
+    const token = auth.slice(7).trim()
+    if (token) return token
   }
-  if (!token) return null
-  const user = tokens.get(token)
-  if (!user) return null
-  return user
+  return parseCookies(req.headers.cookie).den_token || null
+}
+
+async function createSession(username) {
+  const token = randomBytes(32).toString('base64url')
+  const expiresAt = Date.now() + TOKEN_TTL
+  const store = await getStorage()
+  await store.setSession(token, username, expiresAt)
+  return { token, expiresAt }
+}
+
+async function usernameFromReq(req) {
+  const token = readToken(req)
+  if (!token || !SESSION_TOKEN_RE.test(token)) return null
+  const store = await getStorage()
+  const session = await store.getSession(token)
+  if (!session) return null
+  if (session.expiresAt && session.expiresAt <= Date.now()) {
+    await store.deleteSession(token)
+    return null
+  }
+  return session.username
 }
 
 function normalizeUsername(u) {
@@ -141,14 +370,22 @@ function normalizeUsername(u) {
 /* ------------------------------ Логика API ------------------------------- */
 
 async function handleAuth(req, res, mode) {
+  if (req.method !== 'POST') {
+    return json(res, 405, { error: 'Метод не поддерживается' }, { Allow: 'POST' })
+  }
+
   let body
   try {
     body = await readJson(req)
-  } catch {
+  } catch (error) {
+    if (error?.message === 'too_large') {
+      return json(res, 413, { error: 'Слишком большой запрос' })
+    }
     return json(res, 400, { error: 'Некорректные данные' })
   }
+
   const username = normalizeUsername(body?.username)
-  const password = String(body?.password || '')
+  const password = typeof body?.password === 'string' ? body.password : ''
 
   if (!/^[a-z0-9_.-]{3,40}$/.test(username)) {
     return json(res, 400, {
@@ -159,59 +396,104 @@ async function handleAuth(req, res, mode) {
     return json(res, 400, { error: 'Пароль должен быть не короче 4 символов' })
   }
 
-  const store = getStorage()
-  const existing = store.getUser(username)
+  const store = await getStorage()
+  const existing = await store.getUser(username)
 
   if (mode === 'register') {
     if (existing) return json(res, 409, { error: 'Такой пользователь уже есть' })
-    store.setUser(username, { passwordHash: hash(password), createdAt: Date.now() })
+    await store.setUser(username, {
+      passwordHash: hashPassword(password),
+      createdAt: Date.now(),
+    })
   } else {
-    if (!existing || !safeEqual(existing.passwordHash, hash(password))) {
+    if (!existing) {
+      // Считаем «пустой» хэш, чтобы время ответа не выдавало наличие логина.
+      verifyPassword(password, DUMMY_PASSWORD_HASH)
       return json(res, 401, { error: 'Неверный логин или пароль' })
+    }
+    if (!verifyPassword(password, existing.passwordHash)) {
+      return json(res, 401, { error: 'Неверный логин или пароль' })
+    }
+    // Прозрачно переводим старые хэши sha256 на scrypt.
+    if (isLegacyHash(existing.passwordHash)) {
+      await store.setUser(username, {
+        ...existing,
+        passwordHash: hashPassword(password),
+      })
     }
   }
 
-  const token = randomUUID()
-  tokens.set(token, username)
-  setCookie(res, 'den_token', token)
-  return json(res, 200, { token })
+  const { token, expiresAt } = await createSession(username)
+  setCookie(req, res, 'den_token', token, expiresAt)
+  return json(res, 200, { token, username })
+}
+
+async function handleLogout(req, res) {
+  if (req.method !== 'POST') {
+    return json(res, 405, { error: 'Метод не поддерживается' }, { Allow: 'POST' })
+  }
+  const token = readToken(req)
+  if (token && SESSION_TOKEN_RE.test(token)) {
+    const store = await getStorage()
+    await store.deleteSession(token)
+  }
+  clearCookie(req, res, 'den_token')
+  return json(res, 200, { ok: true })
 }
 
 async function handleSync(req, res) {
-  const username = usernameFromReq(req)
+  const username = await usernameFromReq(req)
   if (!username) return json(res, 401, { error: 'Не авторизован' })
 
-  const store = getStorage()
+  const store = await getStorage()
 
   if (req.method === 'GET') {
-    return json(res, 200, { data: store.getData(username) })
+    return json(res, 200, { data: await store.getData(username) })
   }
 
   if (req.method === 'PUT' || req.method === 'POST') {
     let body
     try {
       body = await readJson(req)
-    } catch (e) {
-      if (e.message === 'too_large') {
+    } catch (error) {
+      if (error?.message === 'too_large') {
         return json(res, 413, { error: 'Слишком большой объём данных' })
       }
       return json(res, 400, { error: 'Некорректный JSON' })
     }
-    if (!body || typeof body !== 'object') {
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
       return json(res, 400, { error: 'Пустые данные' })
     }
     const payload = {
       notes: Array.isArray(body.notes) ? body.notes : [],
       tasks: Array.isArray(body.tasks) ? body.tasks : [],
       habits: Array.isArray(body.habits) ? body.habits : [],
-      settings: body.settings && typeof body.settings === 'object' ? body.settings : {},
+      settings:
+        body.settings &&
+        typeof body.settings === 'object' &&
+        !Array.isArray(body.settings)
+          ? body.settings
+          : {},
       updatedAt: Number(body.updatedAt) || Date.now(),
     }
-    store.setData(username, payload)
-    return json(res, 200, { ok: true })
+    await store.setData(username, payload)
+    return json(res, 200, { ok: true, updatedAt: payload.updatedAt })
   }
 
-  return json(res, 405, { error: 'Метод не поддерживается' })
+  return json(
+    res,
+    405,
+    { error: 'Метод не поддерживается' },
+    { Allow: 'GET, PUT' },
+  )
+}
+
+async function handleHealth(req, res) {
+  if (req.method !== 'GET') {
+    return json(res, 405, { error: 'Метод не поддерживается' }, { Allow: 'GET' })
+  }
+  const store = await getStorage()
+  return json(res, 200, { ok: true, storage: store.kind })
 }
 
 /**
@@ -219,11 +501,34 @@ async function handleSync(req, res) {
  * Используется и в Express-обёртке (локально), и в версельной функции.
  */
 export async function handleRequest(req, res, pathname) {
-  const path = (pathname || '').replace(/\/+$/, '')
-  if (path === '/api/auth/register') return handleAuth(req, res, 'register'), true
-  if (path === '/api/auth/login') return handleAuth(req, res, 'login'), true
-  if (path === '/api/sync') return handleSync(req, res), true
-  return false
+  const path = (pathname || '').replace(/\/+$/, '') || '/'
+  try {
+    if (path === '/api/auth/register') {
+      await handleAuth(req, res, 'register')
+      return true
+    }
+    if (path === '/api/auth/login') {
+      await handleAuth(req, res, 'login')
+      return true
+    }
+    if (path === '/api/auth/logout') {
+      await handleLogout(req, res)
+      return true
+    }
+    if (path === '/api/sync') {
+      await handleSync(req, res)
+      return true
+    }
+    if (path === '/api/health') {
+      await handleHealth(req, res)
+      return true
+    }
+    return false
+  } catch (error) {
+    console.error('[api]', error)
+    json(res, 500, { error: 'Внутренняя ошибка сервера' })
+    return true
+  }
 }
 
 /* ------------------------- Локальный запуск (Express) -------------------- */
@@ -239,8 +544,12 @@ async function serveLocal() {
   const port = process.env.PORT || 8787
 
   app.use(async (req, res, next) => {
-    const handled = await handleRequest(req, res, req.path)
-    if (!handled) next()
+    try {
+      const handled = await handleRequest(req, res, req.path)
+      if (!handled) next()
+    } catch (error) {
+      next(error)
+    }
   })
 
   // Раздача собранного клиента (../dist), чтобы всё работало на одном порту.
@@ -250,8 +559,11 @@ async function serveLocal() {
     app.get('*', (req, res) => res.sendFile(path.join(dist, 'index.html')))
   }
 
+  const store = await getStorage()
   app.listen(port, () => {
-    console.log(`Мой день: сервер запущен на http://localhost:${port}`)
+    console.log(
+      `Мой день: сервер запущен на http://localhost:${port} (хранилище: ${store.kind})`,
+    )
   })
 }
 

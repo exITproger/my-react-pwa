@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Локальная база сервера (пароли и данные пользователей)
+server/db.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

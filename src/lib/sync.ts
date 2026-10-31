@@ -70,19 +70,43 @@ function applyRemote(data: SyncPayload): void {
 
 /* --------------------------------- Запросы ------------------------------- */
 
-async function call<T>(
-  path: string,
-  init: RequestInit,
-): Promise<T> {
-  const res = await fetch(`/api/${path}`, init)
+class ApiError extends Error {
+  status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+  }
+}
+
+async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const res = await fetch(`/api/${path}`, {
+    credentials: 'same-origin',
+    ...init,
+  })
   const text = await res.text()
-  const body = text ? (JSON.parse(text) as Record<string, unknown>) : {}
+  let body: Record<string, unknown> = {}
+  if (text) {
+    try {
+      body = JSON.parse(text) as Record<string, unknown>
+    } catch {
+      // Прокси/хостинг может вернуть HTML вместо JSON.
+      if (!res.ok) {
+        throw new ApiError(`Сервер вернул ошибку ${res.status}`, res.status)
+      }
+    }
+  }
   if (!res.ok) {
     const message =
       typeof body.error === 'string' ? body.error : `Ошибка ${res.status}`
-    throw new Error(message)
+    throw new ApiError(message, res.status)
   }
   return body as T
+}
+
+/** Токен больше не действителен — выходим из аккаунта. */
+function dropSession(reason: string): void {
+  setToken(null)
+  setStatus('off', reason)
 }
 
 export async function register(
@@ -118,16 +142,33 @@ export async function login(
   } finally {
     applyingRemote = false
   }
+  // После входа сначала забираем данные аккаунта с сервера.
+  dirty = false
+  pushedUpdatedAt = 0
   await syncNow()
 }
 
-export function logout(): void {
+export async function logout(): Promise<void> {
+  const token = getToken()
+  if (token) {
+    try {
+      await call('auth/logout', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+    } catch {
+      // Сервер мог быть недоступен — локально всё равно выходим.
+    }
+  }
   applyingRemote = true
   try {
     setToken(null)
   } finally {
     applyingRemote = false
   }
+  pushedUpdatedAt = 0
+  dirty = false
+  setStatus('off')
 }
 
 async function push(): Promise<void> {
@@ -179,20 +220,23 @@ export async function pushNow(): Promise<void> {
     dirty = false
     setStatus('ok')
   } catch (error) {
+    if (error instanceof ApiError && error.status === 401) {
+      dropSession('Сессия истекла — войдите заново')
+      return
+    }
     setStatus('error', error instanceof Error ? error.message : String(error))
   }
 }
 
 /** Полная синхронизация: берём сервер, если он новее наших данных, иначе отправляем свои. */
 export async function syncNow(): Promise<void> {
-  if (!getToken()) return
+  const token = getToken()
+  if (!token) return
   setStatus('syncing')
   try {
-    const res = await fetch('/api/sync', {
-      headers: { Authorization: `Bearer ${getToken()}` },
+    const body = await call<{ data: SyncPayload | null }>('sync', {
+      headers: { Authorization: `Bearer ${token}` },
     })
-    if (!res.ok) throw new Error(`Ошибка ${res.status}`)
-    const body = (await res.json()) as { data: SyncPayload | null }
     const remote = body.data
 
     if (remote && (remote.updatedAt ?? 0) !== pushedUpdatedAt) {
@@ -208,6 +252,10 @@ export async function syncNow(): Promise<void> {
     }
     setStatus('ok')
   } catch (error) {
+    if (error instanceof ApiError && error.status === 401) {
+      dropSession('Сессия истекла — войдите заново')
+      return
+    }
     setStatus('error', error instanceof Error ? error.message : String(error))
   }
 }

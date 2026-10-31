@@ -1,10 +1,15 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { useTasks } from './storage'
-import { taskDueDate } from './types'
+import { taskDueDate, type Task } from './types'
 
 const STORAGE_KEY = 'moy-den:notified-tasks'
+/** Событие для показа напоминания внутри приложения. */
+const EVENT = 'moy-den:reminder'
 
-/** Идентификаторы задач, о которых уже уведомили. */
+/**
+ * Идентификаторы уже показанных напоминаний.
+ * Ключ включает время дедлайна: если срок перенесли, напоминание сработает снова.
+ */
 function readNotified(): Set<string> {
   if (typeof localStorage === 'undefined') return new Set()
   try {
@@ -35,84 +40,193 @@ export function notificationPermission(): NotifyPermission {
   return Notification.permission as NotifyPermission
 }
 
-/** Статус разрешений уведомлений + функция запроса (нужен жест пользователя). */
+/** Запрос разрешения. Вызывать только из обработчика жеста (клик/тап). */
+export async function requestNotificationPermission(): Promise<NotifyPermission> {
+  if (typeof window === 'undefined' || !('Notification' in window)) {
+    return 'unsupported'
+  }
+  try {
+    return (await Notification.requestPermission()) as NotifyPermission
+  } catch {
+    return notificationPermission()
+  }
+}
+
+/** Хук со статусом разрешений (перерисовывается после запроса). */
 export function useNotifications() {
-  const permission = notificationPermission()
+  const [permission, setPermission] = useState<NotifyPermission>(() =>
+    notificationPermission(),
+  )
 
   async function request(): Promise<NotifyPermission> {
-    if (!('Notification' in window)) return 'unsupported'
-    return (await Notification.requestPermission()) as NotifyPermission
+    const next = await requestNotificationPermission()
+    setPermission(next)
+    return next
   }
 
   return { permission, request }
 }
 
-function show(taskId: string, title: string, body: string): void {
+/* ----------------------------- Внутренний баннер ------------------------- */
+
+export interface Reminder {
+  /** Ключ «задача@дедлайн» — по нему баннер закрывается и не дублируется. */
+  key: string
+  title: string
+  body: string
+  dueAt: number
+  overdue: boolean
+}
+
+function emitReminder(reminder: Reminder): void {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new CustomEvent<Reminder>(EVENT, { detail: reminder }))
+}
+
+/** Подписка на напоминания для UI (баннер внутри приложения). */
+export function useReminders() {
+  const [items, setItems] = useState<Reminder[]>([])
+
+  useEffect(() => {
+    const timers = new Map<string, number>()
+
+    const handler = (event: Event) => {
+      const reminder = (event as CustomEvent<Reminder>).detail
+      if (!reminder) return
+      setItems((prev) =>
+        prev.some((item) => item.key === reminder.key)
+          ? prev
+          : [...prev, reminder],
+      )
+      const old = timers.get(reminder.key)
+      if (old) window.clearTimeout(old)
+      // Баннер висит 30 секунд, если его не закрыть.
+      timers.set(
+        reminder.key,
+        window.setTimeout(() => {
+          timers.delete(reminder.key)
+          setItems((prev) => prev.filter((item) => item.key !== reminder.key))
+        }, 30_000),
+      )
+    }
+
+    window.addEventListener(EVENT, handler)
+    return () => {
+      window.removeEventListener(EVENT, handler)
+      timers.forEach((timer) => window.clearTimeout(timer))
+    }
+  }, [])
+
+  const dismiss = (key: string) =>
+    setItems((prev) => prev.filter((item) => item.key !== key))
+
+  return { items, dismiss }
+}
+
+/* --------------------------- Системное уведомление ----------------------- */
+
+/**
+ * Показывает системное уведомление.
+ * На Android/iOS конструктор `new Notification()` не работает — там нужен
+ * Service Worker, поэтому сначала пробуем `registration.showNotification`.
+ */
+async function showSystem(reminder: Reminder): Promise<void> {
+  if (notificationPermission() !== 'granted') return
+  const options: NotificationOptions = {
+    body: reminder.body
+      ? `${reminder.title}\n${reminder.body}`
+      : reminder.title,
+    tag: reminder.key,
+  }
+
   try {
-    const notification = new Notification('⏰ Мой день — напоминание', {
-      body: body ? `${title}\n${body}` : title,
-      tag: `task-${taskId}`,
-      icon: '/icon-192.png',
-    })
-    notification.onclick = () => {
-      window.focus()
-      notification.close()
+    if ('serviceWorker' in navigator) {
+      const registration = await navigator.serviceWorker.getRegistration()
+      if (registration?.showNotification) {
+        await registration.showNotification('⏰ Мой день — напоминание', options)
+        return
+      }
     }
   } catch {
-    /* на некоторых мобильных браузерах конструктор Notification недоступен */
+    /* пробуем обычный конструктор ниже */
+  }
+
+  try {
+    new Notification('⏰ Мой день — напоминание', options)
+  } catch {
+    /* остаётся только баннер внутри приложения */
   }
 }
 
 /**
- * Проверяет активные задачи с включённым напоминанием и присылает
- * браузерное уведомление в момент дедлайна.
+ * Проверяет задачи с включённым напоминанием и срабатывает в момент дедлайна.
+ *
+ * - Баннер внутри приложения показывается всегда, даже без разрешения
+ *   на системные уведомления.
+ * - Системное уведомление — только если разрешение выдано.
+ * - Пропущенные сроки (до 24 часов назад) показываются при следующем
+ *   открытии приложения: в закрытом состоянии браузер таймеры не крутит.
  */
 export function useTaskReminderTicker(): void {
   const tasks = useTasks()
-  const notified = useRef<Set<string>>(readNotified())
+  const notifiedRef = useState(() => readNotified())[0]
 
   useEffect(() => {
-    if (notificationPermission() !== 'granted') return
-
-    let cancelled = false
+    const notified = notifiedRef
 
     const check = () => {
       const now = Date.now()
-      let changed = false
+      const alive = new Set<string>()
 
-      for (const task of tasks) {
+      for (const task of tasks as Task[]) {
         if (task.done || !task.remind) continue
         const due = taskDueDate(task)
         if (!due) continue
-        // Не уведомляем о задачах со сроком раньше 24 часов в прошлом.
-        if (due.getTime() > now || now - due.getTime() > 86_400_000) continue
-        if (notified.current.has(task.id)) continue
-        show(task.id, task.title, task.notes ?? '')
-        notified.current.add(task.id)
-        changed = true
+        const dueAt = due.getTime()
+        const key = `${task.id}@${dueAt}`
+        alive.add(key)
+        if (dueAt > now) continue
+        // Пропущенные напоминания старше суток не показываем.
+        if (now - dueAt > 86_400_000) continue
+        if (notified.has(key)) continue
+
+        notified.add(key)
+        writeNotified(notified)
+        const reminder: Reminder = {
+          key,
+          title: task.title,
+          body: task.notes ?? '',
+          dueAt,
+          overdue: now - dueAt > 60_000,
+        }
+        emitReminder(reminder)
+        void showSystem(reminder)
       }
 
-      // Убираем отметки у задач, где напоминание выключили или удалили задачу.
-      if (changed) {
-        const alive = new Set(
-          tasks.filter((t) => t.remind && !t.done).map((t) => t.id),
-        )
-        for (const id of [...notified.current]) {
-          if (!alive.has(id)) notified.current.delete(id)
+      // Чистим отметки у выполненных/удалённых задач и перенесённых сроков.
+      let changed = false
+      for (const key of [...notified]) {
+        if (!alive.has(key)) {
+          notified.delete(key)
+          changed = true
         }
-        writeNotified(notified.current)
       }
+      if (changed) writeNotified(notified)
     }
 
     check()
-    const timer = window.setInterval(check, 20_000)
-    const onFocus = () => !cancelled && check()
-    window.addEventListener('focus', onFocus)
+    const timer = window.setInterval(check, 15_000)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') check()
+    }
+    window.addEventListener('focus', check)
+    document.addEventListener('visibilitychange', onVisible)
 
     return () => {
-      cancelled = true
       window.clearInterval(timer)
-      window.removeEventListener('focus', onFocus)
+      window.removeEventListener('focus', check)
+      document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [tasks])
+  }, [tasks, notifiedRef])
 }
+

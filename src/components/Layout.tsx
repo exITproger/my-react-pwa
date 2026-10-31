@@ -1,6 +1,6 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import { useOnlineStatus, useThemeEffect } from '../lib/hooks'
-import { useTaskReminderTicker } from '../lib/notifications'
+import { useReminders, useTaskReminderTicker } from '../lib/notifications'
 import { startAutoSync } from '../lib/sync'
 import { useEffect, useRef } from 'react'
 
@@ -28,6 +28,56 @@ function OnlineBadge() {
       </span>
       {online ? 'Онлайн' : 'Офлайн'}
     </span>
+  )
+}
+
+/** Всплывающее напоминание внутри приложения (работает и без разрешений). */
+function ReminderStack() {
+  const { items, dismiss } = useReminders()
+  if (items.length === 0) return null
+  return (
+    <div className="pointer-events-none fixed inset-x-3 bottom-24 z-50 flex flex-col items-center gap-2 md:inset-x-auto md:right-6 md:bottom-6 md:items-end">
+      {items.map((item) => (
+        <div
+          key={item.key}
+          role="alert"
+          className="animate-slide-up pointer-events-auto w-full max-w-sm rounded-2xl border border-amber-200 bg-amber-50/95 px-4 py-3 shadow-xl backdrop-blur-xl dark:border-amber-400/30 dark:bg-amber-500/15"
+        >
+          <div className="flex items-start gap-3">
+            <span className="text-lg leading-none">⏰</span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-amber-700 dark:text-amber-200">
+                {item.overdue ? 'Пропущенное напоминание' : 'Напоминание'}
+              </p>
+              <p className="mt-0.5 text-sm font-semibold text-slate-800 dark:text-slate-100">
+                {item.title}
+              </p>
+              {item.body && (
+                <p className="mt-1 whitespace-pre-wrap text-xs text-slate-600 dark:text-slate-300">
+                  {item.body}
+                </p>
+              )}
+              <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                {new Date(item.dueAt).toLocaleString('ru-RU', {
+                  day: '2-digit',
+                  month: 'short',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => dismiss(item.key)}
+              aria-label="Закрыть напоминание"
+              className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-slate-500 transition hover:bg-black/5 dark:text-slate-300 dark:hover:bg-white/10"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
   )
 }
 
@@ -63,6 +113,7 @@ export default function Layout() {
 
   return (
     <div className="flex min-h-screen w-full">
+      <ReminderStack />
       {/* Сайдбар на десктопе */}
       <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-white/60 bg-white/50 px-4 py-6 backdrop-blur-2xl md:flex dark:border-white/10 dark:bg-slate-950/40">
         <div className="mb-8 px-1">

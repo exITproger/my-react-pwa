@@ -136,36 +136,52 @@ export default function SettingsPage() {
 
         {sync.enabled ? (
           <div className="space-y-3">
-            <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">
-              <span className="relative flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-              </span>
-              Синхронизировано
-              {sync.lastSyncAt && (
-                <span className="ml-auto text-xs text-slate-400 dark:text-slate-500">
-                  {new Date(sync.lastSyncAt).toLocaleTimeString('ru-RU', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
+            {sync.status === 'error' && sync.lastError ? (
+              <div className="flex items-start gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300">
+                <span>⚠️</span>
+                <div>
+                  <p className="font-semibold">Не удалось синхронизировать</p>
+                  <p className="text-xs">{sync.lastError}</p>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">
+                <span className="relative flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
                 </span>
-              )}
-            </div>
-            {sync.status === 'error' && sync.lastError && (
-              <p className="text-xs text-rose-500 dark:text-rose-300">{sync.lastError}</p>
+                {sync.status === 'syncing' ? 'Синхронизация…' : 'Синхронизировано'}
+                {sync.lastSyncAt && (
+                  <span className="ml-auto text-xs text-slate-400 dark:text-slate-500">
+                    {new Date(sync.lastSyncAt).toLocaleTimeString('ru-RU', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </span>
+                )}
+              </div>
             )}
-            <Button variant="ghost" size="sm" onClick={() => logout()}>
+            <Button variant="ghost" size="sm" onClick={() => void logout()}>
               Выйти из аккаунта
             </Button>
           </div>
         ) : (
           <div className="space-y-3">
+            {sync.lastError && !authError && (
+              <p className="text-xs text-rose-500 dark:text-rose-300">
+                {sync.lastError}
+              </p>
+            )}
             {authForm ? (
               <>
                 <div className="space-y-2">
                   <input
                     type="text"
                     placeholder="Логин"
+                    autoComplete="username"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleAuth()}
@@ -174,6 +190,12 @@ export default function SettingsPage() {
                   <input
                     type="password"
                     placeholder="Пароль"
+                    autoComplete={
+                      authForm === 'register' ? 'new-password' : 'current-password'
+                    }
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleAuth()}
