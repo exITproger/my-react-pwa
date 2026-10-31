@@ -40,6 +40,8 @@ export default function Notes() {
   const [activeTag, setActiveTag] = useState<string | null>(null)
   const [draft, setDraft] = useState<Note | null>(null)
   const [tagInput, setTagInput] = useState('')
+  /** Заметка, для которой открыто подтверждение удаления. */
+  const [confirmId, setConfirmId] = useState<string | null>(null)
 
   const allTags = useMemo(() => collectTags(notes), [notes])
 
@@ -64,11 +66,13 @@ export default function Notes() {
   function openNew() {
     setDraft(emptyNote())
     setTagInput('')
+    setConfirmId(null)
   }
 
   function openEdit(note: Note) {
     setDraft(note)
     setTagInput('')
+    setConfirmId(null)
   }
 
   function saveDraft() {
@@ -90,6 +94,7 @@ export default function Notes() {
   function remove(id: string) {
     notesStore.set(notes.filter((n) => n.id !== id))
     if (draft?.id === id) setDraft(null)
+    setConfirmId(null)
   }
 
   function togglePin(id: string) {
@@ -238,11 +243,24 @@ export default function Notes() {
               ))}
             </div>
 
-            <div className="flex justify-end gap-2">
-              <Button variant="ghost" onClick={() => setDraft(null)}>
-                Отмена
-              </Button>
-              <Button onClick={saveDraft}>Сохранить</Button>
+            <div className="flex items-center justify-between gap-2">
+              {notes.some((n) => n.id === draft.id) ? (
+                <Button
+                  variant="danger"
+                  size="sm"
+                  onClick={() => remove(draft.id)}
+                >
+                  🗑️ Удалить
+                </Button>
+              ) : (
+                <span />
+              )}
+              <div className="flex gap-2">
+                <Button variant="ghost" onClick={() => setDraft(null)}>
+                  Отмена
+                </Button>
+                <Button onClick={saveDraft}>Сохранить</Button>
+              </div>
             </div>
           </div>
         </div>
@@ -273,28 +291,46 @@ export default function Notes() {
                     {note.title || 'Без названия'}
                   </h3>
                 </div>
-                <div className="flex shrink-0 gap-0.5 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
+                <div className="flex shrink-0 gap-0.5">
                   <IconButton
-                    className="h-7 w-7 text-xs"
+                    className="h-8 w-8 text-xs"
                     onClick={() => togglePin(note.id)}
-                    title="Закрепить"
+                    title={note.pinned ? 'Открепить' : 'Закрепить'}
+                    aria-label={note.pinned ? 'Открепить' : 'Закрепить'}
                   >
                     {note.pinned ? '📍' : '📌'}
                   </IconButton>
                   <IconButton
-                    className="h-7 w-7 text-xs"
-                    onClick={() => remove(note.id)}
-                    title="Удалить"
+                    className="h-8 w-8 text-xs hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-500/15 dark:hover:text-rose-300"
+                    onClick={() =>
+                      setConfirmId(confirmId === note.id ? null : note.id)
+                    }
+                    title="Удалить заметку"
+                    aria-label="Удалить заметку"
                   >
                     🗑️
                   </IconButton>
                 </div>
               </div>
 
-              {note.pinned && (
-                <span className="absolute right-3 top-3 text-xs group-hover:hidden">
-                  📌
-                </span>
+              {confirmId === note.id && (
+                <div className="mt-2 flex flex-wrap items-center gap-2 rounded-xl border border-rose-200 bg-rose-50/90 px-3 py-2 text-xs font-semibold text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-200">
+                  <span className="flex-1">Удалить заметку?</span>
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    onClick={() => remove(note.id)}
+                  >
+                    Удалить
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setConfirmId(null)}
+                  >
+                    Отмена
+                  </Button>
+                </div>
               )}
 
               <p className="mt-2 line-clamp-5 min-h-[3.5rem] whitespace-pre-wrap break-words text-sm text-slate-600 [overflow-wrap:anywhere] dark:text-slate-300">
