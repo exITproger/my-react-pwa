@@ -241,11 +241,11 @@ export default function Dashboard() {
       {/* Модальное окно смены валютной пары */}
       {currencyOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm sm:items-center"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
           onClick={() => setCurrencyOpen(false)}
         >
           <div
-            className="animate-slide-up w-full max-w-sm rounded-t-3xl border border-white/60 bg-white/95 p-5 shadow-2xl sm:rounded-3xl dark:border-white/10 dark:bg-slate-900/95"
+            className="animate-slide-up w-full max-w-sm rounded-3xl border border-white/60 bg-white/95 p-5 shadow-2xl dark:border-white/10 dark:bg-slate-900/95"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-4 flex items-center justify-between">
