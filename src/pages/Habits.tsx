@@ -16,6 +16,7 @@ import {
   Input,
   PageHeader,
 } from '../components/ui'
+import { FlameIcon, TrashIcon } from '../components/icons'
 
 const HABIT_ICONS = ['💪', '📚', '🧘', '💧', '🏃', '🌙', '🥗', '🎯', '✍️', '🎸']
 
@@ -79,7 +80,7 @@ export default function Habits() {
                 onClick={() => setIcon(i)}
                 className={`grid h-9 w-9 place-items-center rounded-xl text-lg transition-all duration-200 hover:scale-110 ${
                   icon === i
-                    ? 'bg-gradient-to-br from-brand-500 to-violet-500 shadow-lg shadow-brand-500/30'
+                    ? 'bg-gradient-to-br from-brand-400 to-brand-600 shadow-lg shadow-brand-500/30'
                     : 'bg-black/5 dark:bg-white/5'
                 }`}
               >
@@ -101,7 +102,7 @@ export default function Habits() {
 
       {habits.length === 0 ? (
         <EmptyState
-          icon="🔥"
+          icon={FlameIcon}
           title="Привычек пока нет"
           hint="Добавьте первую привычку и отмечайте выполнение каждый день"
         />
@@ -150,7 +151,7 @@ export default function Habits() {
                     style={{ animationDelay: `${Math.min(i * 40, 240)}ms` }}
                   >
                     <div className="mb-3 flex items-center gap-3">
-                      <span className="grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-brand-500/10 to-violet-500/10 text-xl">
+                      <span className="grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-brand-500/10 to-brand-500/5 text-xl">
                         {habit.icon}
                       </span>
                       <div className="min-w-0 flex-1">
@@ -158,7 +159,9 @@ export default function Habits() {
                           {habit.name}
                         </p>
                         <div className="flex items-center gap-2 text-[11px] font-semibold">
-                          <span className="text-orange-500">🔥 {streak} дн.</span>
+                          <span className="flex items-center gap-1 text-orange-500">
+                            <FlameIcon size={12} /> {streak} дн.
+                          </span>
                           <span className="text-slate-400">рекорд {best}</span>
                           <span className="text-slate-400">
                             за неделю {doneThisWeek}/7
@@ -166,7 +169,7 @@ export default function Habits() {
                         </div>
                       </div>
                       <IconButton onClick={() => removeHabit(habit.id)}>
-                        🗑️
+                        <TrashIcon size={16} />
                       </IconButton>
                     </div>
 
@@ -182,7 +185,7 @@ export default function Habits() {
                             onClick={() => toggleDay(habit.id, key)}
                             className={`flex flex-col items-center gap-1 rounded-xl py-2 transition-all duration-200 active:scale-90 ${
                               active
-                                ? 'bg-gradient-to-br from-brand-500 to-violet-500 text-white shadow-md shadow-brand-500/30'
+                                ? 'bg-gradient-to-br from-brand-400 to-brand-600 text-white shadow-md shadow-brand-500/30'
                                 : 'bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10'
                             } ${
                               isToday && !active

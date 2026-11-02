@@ -43,6 +43,13 @@ export interface Task {
 
 export type ThemeMode = 'light' | 'dark' | 'system'
 
+/** Скругления интерфейса. */
+export type RadiusMode = 'soft' | 'round' | 'sharp'
+/** Стиль фона. */
+export type BackgroundMode = 'mesh' | 'plain'
+/** Базовый размер текста. */
+export type FontScale = 'small' | 'default' | 'large'
+
 export interface Habit {
   id: string
   name: string
@@ -52,16 +59,54 @@ export interface Habit {
   createdAt: number
 }
 
+/** Эмодзи плиток статистики на главном экране. */
+export interface TileIcons {
+  notes: string
+  tasks: string
+  habits: string
+  streak: string
+}
+
+/** Эмодзи пунктов навигации. */
+export interface NavIcons {
+  home: string
+  notes: string
+  tasks: string
+  habits: string
+  settings: string
+}
+
 export interface Settings {
   theme: ThemeMode
   currencyFrom: string
   currencyTo: string
+  /** Акцентный цвет: ключ пресета или 'custom'. */
+  accent: string
+  /** Пользовательский акцент в формате #rrggbb (при accent = 'custom'). */
+  customAccent?: string
+  radius: RadiusMode
+  background: BackgroundMode
+  fontScale: FontScale
+  tileIcons: TileIcons
+  navIcons: NavIcons
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   theme: 'system',
   currencyFrom: 'USD',
   currencyTo: 'RUB',
+  accent: 'blue',
+  radius: 'soft',
+  background: 'mesh',
+  fontScale: 'default',
+  tileIcons: { notes: '📝', tasks: '✅', habits: '🔥', streak: '⚡' },
+  navIcons: {
+    home: '🏠',
+    notes: '📝',
+    tasks: '✅',
+    habits: '🔥',
+    settings: '⚙️',
+  },
 }
 
 export function createId(): string {

@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react'
 import { useSettings } from './storage'
+import { applyAppearance } from './appearance'
 import {
   fetchCurrency,
   getCachedCurrency,
   type CurrencyResult,
 } from './api'
 
-/** Применяет выбранную тему к <html> и следит за системной темой. */
+/** Применяет выбранную тему и внешний вид к <html> и следит за системной темой. */
 export function useThemeEffect(): void {
-  const { theme } = useSettings()
+  const settings = useSettings()
+  const { theme } = settings
 
   useEffect(() => {
     const root = document.documentElement
@@ -28,6 +30,10 @@ export function useThemeEffect(): void {
       return () => media.removeEventListener('change', apply)
     }
   }, [theme])
+
+  useEffect(() => {
+    applyAppearance(settings)
+  }, [settings])
 }
 
 /**

@@ -5,15 +5,16 @@
 
 @theme {
   --font-sans: 'Inter', system-ui, 'Segoe UI', Roboto, sans-serif;
-  --color-brand-50: #eef2ff;
-  --color-brand-100: #e0e7ff;
-  --color-brand-200: #c7d2fe;
-  --color-brand-300: #a5b4fc;
-  --color-brand-400: #818cf8;
-  --color-brand-500: #6366f1;
-  --color-brand-600: #4f46e5;
-  --color-brand-700: #4338ca;
-  --color-brand-800: #3730a3;
+  /* Спокойный синий по умолчанию (меняется в настройках) */
+  --color-brand-50: #eef4fd;
+  --color-brand-100: #dce8fa;
+  --color-brand-200: #c0d6f5;
+  --color-brand-300: #93baf0;
+  --color-brand-400: #5f97e8;
+  --color-brand-500: #3f7cd4;
+  --color-brand-600: #2f63b8;
+  --color-brand-700: #284f93;
+  --color-brand-800: #234174;
 
   --animate-fade-in: fade-in 0.4s ease both;
   --animate-slide-up: slide-up 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
@@ -76,53 +77,58 @@ html {
 
 body {
   font-family: var(--font-sans);
-  background-color: #f4f5fb;
-  color: #0f172a;
+  background-color: #f4f7fc;
+  color: #1e293b;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   overflow-x: hidden;
 }
 
-/* Мягкие «дышащие» градиентные пятна на фоне */
+/* Мягкие «дышащие» градиентные пятна на фоне (цвет — от акцентной темы) */
 body::before {
   content: '';
   position: fixed;
   inset: 0;
   z-index: -1;
   background:
-    radial-gradient(600px 400px at 8% -5%, rgba(99, 102, 241, 0.28), transparent 70%),
-    radial-gradient(700px 500px at 105% 5%, rgba(168, 85, 247, 0.22), transparent 70%),
-    radial-gradient(600px 500px at 50% 110%, rgba(56, 189, 248, 0.16), transparent 70%);
+    radial-gradient(600px 400px at 8% -5%, var(--blob-1, rgba(59, 130, 246, 0.18)), transparent 70%),
+    radial-gradient(700px 500px at 105% 5%, var(--blob-2, rgba(147, 197, 253, 0.28)), transparent 70%),
+    radial-gradient(600px 500px at 50% 110%, var(--blob-3, rgba(191, 219, 254, 0.4)), transparent 70%);
   animation: fade-in 0.8s ease both;
 }
 
 .dark body {
-  background-color: #070a18;
+  background-color: #0a1120;
   color: #e2e8f0;
 }
 
 .dark body::before {
   background:
-    radial-gradient(600px 400px at 8% -5%, rgba(99, 102, 241, 0.22), transparent 70%),
-    radial-gradient(700px 500px at 105% 5%, rgba(168, 85, 247, 0.18), transparent 70%),
-    radial-gradient(600px 500px at 50% 110%, rgba(56, 189, 248, 0.12), transparent 70%);
+    radial-gradient(600px 400px at 8% -5%, var(--blob-1-dark, rgba(59, 130, 246, 0.14)), transparent 70%),
+    radial-gradient(700px 500px at 105% 5%, var(--blob-2-dark, rgba(59, 130, 246, 0.1)), transparent 70%),
+    radial-gradient(600px 500px at 50% 110%, var(--blob-3-dark, rgba(30, 64, 175, 0.12)), transparent 70%);
+}
+
+/* Однотонный фон без градиентных пятен (настройка «Фон») */
+.bg-plain body::before {
+  content: none;
 }
 
 /* Кастомный скроллбар */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(99, 102, 241, 0.4) transparent;
+  scrollbar-color: rgba(63, 124, 212, 0.4) transparent;
 }
 *::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 *::-webkit-scrollbar-thumb {
-  background: rgba(99, 102, 241, 0.35);
+  background: rgba(63, 124, 212, 0.35);
   border-radius: 999px;
 }
 *::-webkit-scrollbar-thumb:hover {
-  background: rgba(99, 102, 241, 0.6);
+  background: rgba(63, 124, 212, 0.6);
 }
 
 button,
@@ -131,5 +137,5 @@ a {
 }
 
 ::selection {
-  background: rgba(99, 102, 241, 0.25);
+  background: rgba(63, 124, 212, 0.25);
 }

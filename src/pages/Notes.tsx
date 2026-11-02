@@ -18,6 +18,13 @@ import {
   Tag,
   Textarea,
 } from '../components/ui'
+import {
+  CloseIcon,
+  NoteIcon,
+  PinIcon,
+  SearchIcon,
+  TrashIcon,
+} from '../components/icons'
 
 const COLOR_KEYS = Object.keys(NOTE_COLORS) as NoteColor[]
 
@@ -121,14 +128,20 @@ export default function Notes() {
       <PageHeader
         title="Заметки"
         subtitle={`${notes.length} заметок · хранятся на устройстве`}
-        action={<Button onClick={openNew}>＋ Новая заметка</Button>}
+        action={<Button onClick={openNew}>Новая заметка</Button>}
       />
 
-      <Input
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="🔍 Поиск по заголовку, тексту или тегам…"
-      />
+      <div className="relative">
+        <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
+          <SearchIcon size={16} />
+        </span>
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Поиск по заголовку, тексту или тегам…"
+          className="pl-10"
+        />
+      </div>
 
       {allTags.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
@@ -137,7 +150,7 @@ export default function Notes() {
             onClick={() => setActiveTag(null)}
             className={`rounded-full px-3 py-1 text-[11px] font-bold transition ${
               activeTag === null
-                ? 'bg-gradient-to-r from-brand-500 to-violet-500 text-white shadow'
+                ? 'bg-gradient-to-r from-brand-400 to-brand-600 text-white shadow'
                 : 'bg-white/70 text-slate-500 hover:bg-white dark:bg-white/5 dark:text-slate-400'
             }`}
           >
@@ -150,7 +163,7 @@ export default function Notes() {
               onClick={() => setActiveTag(tag === activeTag ? null : tag)}
               className={`rounded-full px-3 py-1 text-[11px] font-bold transition ${
                 activeTag === tag
-                  ? 'bg-gradient-to-r from-brand-500 to-violet-500 text-white shadow'
+                  ? 'bg-gradient-to-r from-brand-400 to-brand-600 text-white shadow'
                   : 'bg-white/70 text-slate-500 hover:bg-white dark:bg-white/5 dark:text-slate-400'
               }`}
             >
@@ -176,7 +189,9 @@ export default function Notes() {
                   ? 'Редактировать'
                   : 'Новая заметка'}
               </h3>
-              <IconButton onClick={() => setDraft(null)}>✕</IconButton>
+              <IconButton onClick={() => setDraft(null)}>
+                <CloseIcon size={16} />
+              </IconButton>
             </div>
 
             <Input
@@ -250,7 +265,7 @@ export default function Notes() {
                   size="sm"
                   onClick={() => remove(draft.id)}
                 >
-                  🗑️ Удалить
+                  <TrashIcon size={16} /> Удалить
                 </Button>
               ) : (
                 <span />
@@ -268,7 +283,7 @@ export default function Notes() {
 
       {filtered.length === 0 ? (
         <EmptyState
-          icon="📝"
+          icon={NoteIcon}
           title={query || activeTag ? 'Ничего не найдено' : 'Заметок пока нет'}
           hint={
             query || activeTag ? undefined : 'Нажмите «Новая заметка», чтобы начать'
@@ -298,7 +313,7 @@ export default function Notes() {
                     title={note.pinned ? 'Открепить' : 'Закрепить'}
                     aria-label={note.pinned ? 'Открепить' : 'Закрепить'}
                   >
-                    {note.pinned ? '📍' : '📌'}
+                    {note.pinned ? <PinIcon size={15} /> : <PinIcon size={15} className="opacity-40" />}
                   </IconButton>
                   <IconButton
                     className="h-8 w-8 text-xs hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-500/15 dark:hover:text-rose-300"
@@ -308,7 +323,7 @@ export default function Notes() {
                     title="Удалить заметку"
                     aria-label="Удалить заметку"
                   >
-                    🗑️
+                    <TrashIcon size={15} />
                   </IconButton>
                 </div>
               </div>

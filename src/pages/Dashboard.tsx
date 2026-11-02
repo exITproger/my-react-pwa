@@ -1,14 +1,24 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useHabits, useNotes, useSettings, useTasks } from '../lib/storage'
+import { useHabits, useNotes, settingsStore, useSettings, useTasks } from '../lib/storage'
+import { CURRENCIES } from '../lib/api'
 import { formatRelative, useCurrency } from '../lib/hooks'
 import {
+  DEFAULT_SETTINGS,
   dueLabelWithTime,
   habitStreak,
   toDateKey,
   type Habit,
   type Task,
 } from '../lib/types'
-import { Card, ProgressBar, Ring, Tag } from '../components/ui'
+import { Button, Card, Dropdown, ProgressBar, Ring, Tag } from '../components/ui'
+import {
+  CloseIcon,
+  CoinsIcon,
+  FlameIcon,
+  NoteIcon,
+  PinIcon,
+} from '../components/icons'
 
 function greeting(): string {
   const h = new Date().getHours()
@@ -37,7 +47,7 @@ function StatTile({
     <Link
       to={to}
       style={{ animationDelay: `${delay}ms` }}
-      className="animate-slide-up group relative overflow-hidden rounded-3xl border border-white/60 bg-white/70 p-4 shadow-[0_8px_30px_-12px_rgba(79,70,229,0.25)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-1.5 hover:shadow-[0_18px_40px_-16px_rgba(79,70,229,0.45)] dark:border-white/10 dark:bg-white/[0.06]"
+      className="animate-slide-up group relative overflow-hidden rounded-3xl border border-white/60 bg-white/70 p-4 shadow-[0_8px_30px_-12px_rgba(221,95,146,0.25)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-1.5 hover:shadow-[0_18px_40px_-16px_rgba(221,95,146,0.45)] dark:border-white/10 dark:bg-white/[0.06]"
     >
       <div
         className={`absolute -right-6 -top-6 h-20 w-20 rounded-full bg-gradient-to-br ${gradient} opacity-20 blur-xl transition-all duration-500 group-hover:opacity-40 group-hover:scale-125`}
@@ -66,10 +76,28 @@ export default function Dashboard() {
   const tasks = useTasks()
   const habits = useHabits()
   const settings = useSettings()
+  const [currencyOpen, setCurrencyOpen] = useState(false)
+  const [fromDraft, setFromDraft] = useState(settings.currencyFrom)
+  const [toDraft, setToDraft] = useState(settings.currencyTo)
   const { data: currency } = useCurrency(
     settings.currencyFrom,
     settings.currencyTo,
   )
+
+  function openCurrencyModal() {
+    setFromDraft(settings.currencyFrom)
+    setToDraft(settings.currencyTo)
+    setCurrencyOpen(true)
+  }
+
+  function saveCurrency() {
+    settingsStore.update((prev) => ({
+      ...prev,
+      currencyFrom: fromDraft,
+      currencyTo: toDraft,
+    }))
+    setCurrencyOpen(false)
+  }
 
   const today = toDateKey(new Date())
   const activeTasks = tasks.filter((t) => !t.done)
@@ -99,7 +127,7 @@ export default function Dashboard() {
       <div className="animate-slide-up flex flex-wrap items-end justify-between gap-4">
         <div>
           <h2 className="bg-gradient-to-br from-slate-900 to-slate-600 bg-clip-text text-3xl font-extrabold tracking-tight text-transparent dark:from-white dark:to-slate-400">
-            {greeting()}! 👋
+            {greeting()}!
           </h2>
           <p className="mt-1 text-sm capitalize text-slate-500 dark:text-slate-400">
             {new Date().toLocaleDateString('ru-RU', {
@@ -114,7 +142,7 @@ export default function Dashboard() {
       {/* Статистика */}
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatTile
-          icon="📝"
+          icon={settings.tileIcons?.notes ?? DEFAULT_SETTINGS.tileIcons.notes}
           value={String(notes.length)}
           label="заметок"
           gradient="from-sky-400 to-blue-500"
@@ -122,7 +150,7 @@ export default function Dashboard() {
           delay={0}
         />
         <StatTile
-          icon="✅"
+          icon={settings.tileIcons?.tasks ?? DEFAULT_SETTINGS.tileIcons.tasks}
           value={String(activeTasks.length)}
           label="активных задач"
           gradient="from-emerald-400 to-teal-500"
@@ -130,7 +158,7 @@ export default function Dashboard() {
           delay={60}
         />
         <StatTile
-          icon="🔥"
+          icon={settings.tileIcons?.habits ?? DEFAULT_SETTINGS.tileIcons.habits}
           value={String(habitsDoneToday)}
           label={`из ${habits.length} привычек`}
           gradient="from-orange-400 to-rose-500"
@@ -138,10 +166,10 @@ export default function Dashboard() {
           delay={120}
         />
         <StatTile
-          icon="⚡"
+          icon={settings.tileIcons?.streak ?? DEFAULT_SETTINGS.tileIcons.streak}
           value={String(maxStreak)}
           label="дней в серии"
-          gradient="from-violet-400 to-fuchsia-500"
+          gradient="from-brand-400 to-brand-600"
           to="/habits"
           delay={180}
         />
@@ -196,22 +224,73 @@ export default function Dashboard() {
                 </p>
               )}
             </div>
-            <span className="text-4xl">💱</span>
+            <span className="text-brand-500">
+              <CoinsIcon size={32} />
+            </span>
           </div>
-          <Link
-            to="/settings"
+          <button
+            type="button"
+            onClick={openCurrencyModal}
             className="mt-3 inline-block text-xs font-bold text-brand-600 transition hover:translate-x-1 dark:text-brand-300"
           >
             Изменить пару →
-          </Link>
+          </button>
         </Card>
       </section>
+
+      {/* Модальное окно смены валютной пары */}
+      {currencyOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm sm:items-center"
+          onClick={() => setCurrencyOpen(false)}
+        >
+          <div
+            className="animate-slide-up w-full max-w-sm rounded-t-3xl border border-white/60 bg-white/95 p-5 shadow-2xl sm:rounded-3xl dark:border-white/10 dark:bg-slate-900/95"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-extrabold text-slate-900 dark:text-white">
+                Валютная пара
+              </h3>
+              <button
+                type="button"
+                onClick={() => setCurrencyOpen(false)}
+                aria-label="Закрыть"
+                className="grid h-9 w-9 place-items-center rounded-xl text-slate-500 transition hover:bg-black/5 dark:text-slate-400 dark:hover:bg-white/10"
+              >
+                <CloseIcon size={16} />
+              </button>
+            </div>
+            <div className="flex items-center gap-3">
+              <Dropdown
+                value={fromDraft}
+                onChange={setFromDraft}
+                options={CURRENCIES.map((c) => ({ value: c, label: c }))}
+                className="flex-1"
+              />
+              <span className="font-bold text-slate-400">→</span>
+              <Dropdown
+                value={toDraft}
+                onChange={setToDraft}
+                options={CURRENCIES.map((c) => ({ value: c, label: c }))}
+                className="flex-1"
+              />
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setCurrencyOpen(false)}>
+                Отмена
+              </Button>
+              <Button onClick={saveCurrency}>Сохранить</Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* На сегодня */}
       <section className="animate-slide-up">
         <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-base font-bold text-slate-800 dark:text-slate-100">
-            📌 На сегодня
+          <h3 className="flex items-center gap-2 text-base font-bold text-slate-800 dark:text-slate-100">
+            <PinIcon size={16} className="text-brand-500" /> На сегодня
           </h3>
           <Link
             to="/tasks"
@@ -222,7 +301,7 @@ export default function Dashboard() {
         </div>
         {todayTasks.length === 0 ? (
           <Card className="text-center text-sm text-slate-400">
-            На сегодня задач нет — можно отдохнуть 🎉
+            На сегодня задач нет — можно отдохнуть
           </Card>
         ) : (
           <ul className="space-y-2">
@@ -250,9 +329,9 @@ export default function Dashboard() {
       {habits.length > 0 && (
         <section className="animate-slide-up">
           <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-base font-bold text-slate-800 dark:text-slate-100">
-              🔥 Привычки
-            </h3>
+          <h3 className="flex items-center gap-2 text-base font-bold text-slate-800 dark:text-slate-100">
+            <FlameIcon size={16} className="text-orange-500" /> Привычки
+          </h3>
             <Link
               to="/habits"
               className="text-xs font-bold text-brand-600 dark:text-brand-300"
@@ -271,8 +350,8 @@ export default function Dashboard() {
       {/* Последние заметки */}
       <section className="animate-slide-up">
         <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-base font-bold text-slate-800 dark:text-slate-100">
-            📝 Последние заметки
+          <h3 className="flex items-center gap-2 text-base font-bold text-slate-800 dark:text-slate-100">
+            <NoteIcon size={16} className="text-brand-500" /> Последние заметки
           </h3>
           <Link
             to="/notes"
@@ -283,7 +362,7 @@ export default function Dashboard() {
         </div>
         {recentNotes.length === 0 ? (
           <Card className="text-center text-sm text-slate-400">
-            Заметок пока нет — создайте первую 📝
+            Заметок пока нет — создайте первую
           </Card>
         ) : (
           <div className="grid gap-3 sm:grid-cols-3">
@@ -336,8 +415,9 @@ function HabitMini({ habit, today }: { habit: Habit; today: string }) {
         </p>
       </div>
       {streak > 0 && (
-        <span className="shrink-0 text-[11px] font-bold text-orange-500">
-          🔥{streak}
+        <span className="flex shrink-0 items-center gap-0.5 text-[11px] font-bold text-orange-500">
+          <FlameIcon size={12} />
+          {streak}
         </span>
       )}
     </div>

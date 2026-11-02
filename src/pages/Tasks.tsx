@@ -17,15 +17,21 @@ import {
 } from '../lib/notifications'
 import {
   Button,
+  Dropdown,
   EmptyState,
   IconButton,
   Input,
   PageHeader,
   ProgressBar,
-  Select,
   Tag,
   Textarea,
 } from '../components/ui'
+import {
+  BellIcon,
+  CheckCircleIcon,
+  CloseIcon,
+  TrashIcon,
+} from '../components/icons'
 
 type Filter = 'all' | 'active' | 'done' | 'today'
 
@@ -177,7 +183,7 @@ export default function Tasks() {
       />
 
       {/* Прогресс */}
-      <div className="animate-slide-up rounded-3xl border border-white/60 bg-white/70 p-5 shadow-[0_8px_30px_-12px_rgba(79,70,229,0.25)] backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.06]">
+      <div className="animate-slide-up rounded-3xl border border-white/60 bg-white/70 p-5 shadow-[0_8px_30px_-12px_rgba(221,95,146,0.25)] backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.06]">
         <div className="mb-2 flex items-center justify-between text-sm">
           <span className="font-bold text-slate-700 dark:text-slate-200">
             Общий прогресс
@@ -199,17 +205,15 @@ export default function Tasks() {
             placeholder="Что нужно сделать?"
             className="flex-1"
           />
-          <Select
+          <Dropdown
             value={priority}
-            onChange={(e) => setPriority(e.target.value as TaskPriority)}
+            onChange={(v) => setPriority(v as TaskPriority)}
+            options={Object.entries(PRIORITY_LABEL).map(([value, label]) => ({
+              value,
+              label,
+            }))}
             className="sm:w-32"
-          >
-            {Object.entries(PRIORITY_LABEL).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </Select>
+          />
           <Button onClick={addTask}>＋</Button>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -235,7 +239,7 @@ export default function Tasks() {
               onChange={(e) => setRemind(e.target.checked)}
               className="h-4 w-4 accent-brand-500 disabled:opacity-40"
             />
-            🔔 Напомнить
+            <BellIcon size={14} /> Напомнить
           </label>
         </div>
         {remind && permission !== 'granted' && (
@@ -286,7 +290,7 @@ export default function Tasks() {
               onClick={() => setFilter(value)}
               className={`rounded-xl px-3 py-1.5 text-xs font-bold transition-all duration-300 ${
                 filter === value
-                  ? 'bg-gradient-to-r from-brand-500 to-violet-500 text-white shadow'
+                  ? 'bg-gradient-to-r from-brand-400 to-brand-600 text-white shadow'
                   : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
               }`}
             >
@@ -303,7 +307,7 @@ export default function Tasks() {
                 onClick={() => setActiveTag(tag === activeTag ? null : tag)}
                 className={`rounded-full px-2.5 py-1 text-[11px] font-bold transition ${
                   activeTag === tag
-                    ? 'bg-gradient-to-r from-brand-500 to-violet-500 text-white shadow'
+                    ? 'bg-gradient-to-r from-brand-400 to-brand-600 text-white shadow'
                     : 'bg-white/70 text-slate-500 hover:bg-white dark:bg-white/5 dark:text-slate-400'
                 }`}
               >
@@ -316,7 +320,7 @@ export default function Tasks() {
 
       {filtered.length === 0 ? (
         <EmptyState
-          icon="✅"
+          icon={CheckCircleIcon}
           title={
             filter === 'done'
               ? 'Выполненных задач нет'
@@ -345,7 +349,7 @@ export default function Tasks() {
                     aria-label="Отметить"
                     className={`grid h-6 w-6 shrink-0 place-items-center rounded-lg border-2 text-xs transition-all duration-200 active:scale-90 ${
                       task.done
-                        ? 'border-brand-500 bg-linear-to-br from-brand-500 to-violet-500 text-white'
+                        ? 'border-brand-500 bg-linear-to-br from-brand-400 to-brand-600 text-white'
                         : 'border-black/15 hover:border-brand-400 dark:border-white/25'
                     }`}
                   >
@@ -379,7 +383,7 @@ export default function Tasks() {
                         ))}
                         {task.remind && (
                           <span className="text-[11px]" title="Напоминание включено">
-                            🔔
+                            <BellIcon size={13} />
                           </span>
                         )}
                       </div>
@@ -412,7 +416,7 @@ export default function Tasks() {
                     onClick={() => remove(task.id)}
                     title="Удалить"
                   >
-                    🗑️
+                    <TrashIcon size={16} />
                   </IconButton>
                 </div>
 
@@ -453,7 +457,7 @@ export default function Tasks() {
                             className="h-6 w-6 text-[10px]"
                             onClick={() => removeSubtask(task.id, sub.id)}
                           >
-                            ✕
+                            <CloseIcon size={13} />
                           </IconButton>
                         </div>
                       ))}
@@ -598,7 +602,9 @@ function TaskEditor({
           <h3 className="text-lg font-extrabold text-slate-900 dark:text-white">
             Редактировать задачу
           </h3>
-          <IconButton onClick={onClose}>✕</IconButton>
+          <IconButton onClick={onClose}>
+            <CloseIcon size={16} />
+          </IconButton>
         </div>
 
         <Input
@@ -633,21 +639,17 @@ function TaskEditor({
               }}
               className="h-4 w-4 accent-brand-500"
             />
-            🔔 Напомнить
-          </label>
-          <Select
+              <BellIcon size={14} /> Напомнить
+            </label>
+          <Dropdown
             value={draft.priority}
-            onChange={(e) =>
-              setDraft({ ...draft, priority: e.target.value as TaskPriority })
-            }
+            onChange={(v) => setDraft({ ...draft, priority: v as TaskPriority })}
+            options={Object.entries(PRIORITY_LABEL).map(([value, label]) => ({
+              value,
+              label,
+            }))}
             className="w-32"
-          >
-            {Object.entries(PRIORITY_LABEL).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </Select>
+          />
         </div>
 
         <div className="mb-3">
@@ -707,7 +709,7 @@ function TaskEditor({
               onRemove(task.id)
             }}
           >
-            🗑️ Удалить
+            <TrashIcon size={16} /> Удалить
           </Button>
           <div className="flex gap-2">
             <Button variant="ghost" onClick={onClose}>

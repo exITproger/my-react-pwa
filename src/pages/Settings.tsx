@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import {
   resetAllData,
   settingsStore,
@@ -7,6 +7,7 @@ import {
   useSettings,
   useTasks,
 } from '../lib/storage'
+import { ACCENTS } from '../lib/appearance'
 import { CURRENCIES } from '../lib/api'
 import { register, login, logout, useSync } from '../lib/sync'
 import {
@@ -14,16 +15,62 @@ import {
   useNotifications,
 } from '../lib/notifications'
 import type { ThemeMode } from '../lib/types'
-import { Button, Card, PageHeader, Select } from '../components/ui'
+import { DEFAULT_SETTINGS } from '../lib/types'
+import { Button, Card, Dropdown, EmojiPicker, PageHeader } from '../components/ui'
+import {
+  BellIcon,
+  CheckCircleIcon,
+  ChartIcon,
+  CoinsIcon,
+  FlameIcon,
+  ImageIcon,
+  InfoIcon,
+  MonitorIcon,
+  MoonIcon,
+  NoteIcon,
+  PaletteIcon,
+  RefreshIcon,
+  SunIcon,
+  TrashIcon,
+  WarnIcon,
+} from '../components/icons'
 
-const THEMES: Array<{ value: ThemeMode; label: string; icon: string }> = [
-  { value: 'light', label: 'Светлая', icon: '☀️' },
-  { value: 'dark', label: 'Тёмная', icon: '🌙' },
-  { value: 'system', label: 'Системная', icon: '🖥️' },
+const THEMES: Array<{
+  value: ThemeMode
+  label: string
+  icon: (props: { size?: number }) => ReactNode
+}> = [
+  { value: 'light', label: 'Светлая', icon: SunIcon },
+  { value: 'dark', label: 'Тёмная', icon: MoonIcon },
+  { value: 'system', label: 'Системная', icon: MonitorIcon },
+]
+
+const RADII = [
+  { value: 'soft' as const, label: 'Мягкие' },
+  { value: 'round' as const, label: 'Круглые' },
+  { value: 'sharp' as const, label: 'Строгие' },
+]
+
+const BACKGROUNDS = [
+  { value: 'mesh' as const, label: 'Градиентный' },
+  { value: 'plain' as const, label: 'Однотонный' },
+]
+
+const FONT_SCALES = [
+  { value: 'small' as const, label: 'Меньше' },
+  { value: 'default' as const, label: 'Обычный' },
+  { value: 'large' as const, label: 'Крупнее' },
 ]
 
 export default function SettingsPage() {
-  const settings = useSettings()
+  const stored = useSettings()
+  // Старые сохранённые настройки могут не содержать новых полей — дополняем дефолтами.
+  const settings = {
+    ...DEFAULT_SETTINGS,
+    ...stored,
+    tileIcons: { ...DEFAULT_SETTINGS.tileIcons, ...stored.tileIcons },
+    navIcons: { ...DEFAULT_SETTINGS.navIcons, ...stored.navIcons },
+  }
   const notes = useNotes()
   const tasks = useTasks()
   const habits = useHabits()
@@ -45,9 +92,9 @@ export default function SettingsPage() {
   }
 
   const stats = [
-    { icon: '📝', label: 'Заметок', value: notes.length },
-    { icon: '✅', label: 'Задач', value: tasks.length },
-    { icon: '🔥', label: 'Привычек', value: habits.length },
+    { icon: NoteIcon, label: 'Заметок', value: notes.length },
+    { icon: CheckCircleIcon, label: 'Задач', value: tasks.length },
+    { icon: FlameIcon, label: 'Привычек', value: habits.length },
   ]
 
   const handleAuth = async () => {
@@ -73,8 +120,8 @@ export default function SettingsPage() {
 
       {/* Тема */}
       <Card className="animate-slide-up">
-        <h3 className="mb-3 text-sm font-bold text-slate-800 dark:text-slate-100">
-          🎨 Тема оформления
+        <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-slate-800 dark:text-slate-100">
+          <PaletteIcon size={16} className="text-brand-500" /> Тема оформления
         </h3>
         <div className="grid grid-cols-3 gap-2">
           {THEMES.map((t) => (
@@ -84,44 +131,205 @@ export default function SettingsPage() {
               onClick={() => update({ theme: t.value })}
               className={`flex flex-col items-center gap-1.5 rounded-2xl border px-3 py-4 text-xs font-bold transition-all duration-300 active:scale-95 ${
                 settings.theme === t.value
-                  ? 'border-brand-500 bg-linear-to-br from-brand-50 to-violet-50 text-brand-700 shadow-md dark:from-brand-500/15 dark:to-violet-500/15 dark:text-brand-100'
+                  ? 'border-brand-500 bg-linear-to-br from-brand-50 to-rose-50 text-brand-700 shadow-md dark:from-brand-500/15 dark:to-brand-500/5 dark:text-brand-100'
                   : 'border-white/60 bg-white/60 text-slate-600 hover:border-brand-200 dark:border-white/10 dark:bg-white/5 dark:text-slate-300'
               }`}
             >
-              <span className="text-xl">{t.icon}</span>
+              <t.icon size={20} />
               {t.label}
             </button>
           ))}
         </div>
       </Card>
 
+      {/* Внешний вид */}
+      <Card className="animate-slide-up">
+        <h3 className="mb-4 flex items-center gap-2 text-sm font-bold text-slate-800 dark:text-slate-100">
+          <ImageIcon size={16} className="text-brand-500" /> Внешний вид
+        </h3>
+
+        {/* Акцентный цвет */}
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+          Акцентный цвет
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          {ACCENTS.map((a) => (
+            <button
+              key={a.key}
+              type="button"
+              title={a.label}
+              aria-label={a.label}
+              onClick={() => update({ accent: a.key })}
+              className={`h-9 w-9 rounded-full border-2 transition-transform hover:scale-110 ${
+                settings.accent === a.key
+                  ? 'border-brand-500 scale-110 shadow-md'
+                  : 'border-black/10 dark:border-white/20'
+              }`}
+              style={{ background: `hsl(${a.hue} ${a.sat}% 55%)` }}
+            />
+          ))}
+          <label
+            className={`flex h-9 cursor-pointer items-center gap-2 rounded-full border px-3 text-xs font-semibold transition-transform hover:scale-105 ${
+              settings.accent === 'custom'
+                ? 'border-brand-500 text-brand-700 dark:text-brand-200'
+                : 'border-black/10 text-slate-500 dark:border-white/20 dark:text-slate-300'
+            }`}
+          >
+            Свой
+            <input
+              type="color"
+              value={settings.customAccent ?? '#4f7cc9'}
+              onChange={(e) =>
+                update({
+                  accent: 'custom',
+                  customAccent: e.target.value,
+                })
+              }
+              className="h-5 w-5 cursor-pointer rounded-full border-0 bg-transparent p-0"
+            />
+          </label>
+        </div>
+
+        {/* Скругления */}
+        <p className="mb-2 mt-4 text-xs font-semibold uppercase tracking-wide text-slate-400">
+          Скругления
+        </p>
+        <div className="grid grid-cols-3 gap-2">
+          {RADII.map((r) => (
+            <button
+              key={r.value}
+              type="button"
+              onClick={() => update({ radius: r.value })}
+              className={`rounded-2xl border px-3 py-2 text-xs font-bold transition-all active:scale-95 ${
+                settings.radius === r.value
+                  ? 'border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-100'
+                  : 'border-white/60 bg-white/60 text-slate-600 hover:border-brand-200 dark:border-white/10 dark:bg-white/5 dark:text-slate-300'
+              }`}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Фон */}
+        <p className="mb-2 mt-4 text-xs font-semibold uppercase tracking-wide text-slate-400">
+          Фон
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          {BACKGROUNDS.map((b) => (
+            <button
+              key={b.value}
+              type="button"
+              onClick={() => update({ background: b.value })}
+              className={`rounded-2xl border px-3 py-2 text-xs font-bold transition-all active:scale-95 ${
+                settings.background === b.value
+                  ? 'border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-100'
+                  : 'border-white/60 bg-white/60 text-slate-600 hover:border-brand-200 dark:border-white/10 dark:bg-white/5 dark:text-slate-300'
+              }`}
+            >
+              {b.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Размер текста */}
+        <p className="mb-2 mt-4 text-xs font-semibold uppercase tracking-wide text-slate-400">
+          Размер текста
+        </p>
+        <div className="grid grid-cols-3 gap-2">
+          {FONT_SCALES.map((f) => (
+            <button
+              key={f.value}
+              type="button"
+              onClick={() => update({ fontScale: f.value })}
+              className={`rounded-2xl border px-3 py-2 text-xs font-bold transition-all active:scale-95 ${
+                settings.fontScale === f.value
+                  ? 'border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-100'
+                  : 'border-white/60 bg-white/60 text-slate-600 hover:border-brand-200 dark:border-white/10 dark:bg-white/5 dark:text-slate-300'
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Значки навигации */}
+        <p className="mb-2 mt-4 text-xs font-semibold uppercase tracking-wide text-slate-400">
+          Значки меню
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {(
+            [
+              ['home', 'Обзор'],
+              ['notes', 'Заметки'],
+              ['tasks', 'Задачи'],
+              ['habits', 'Привычки'],
+              ['settings', 'Настройки'],
+            ] as const
+          ).map(([key, label]) => (
+            <div key={key} className="flex flex-col items-center gap-1">
+              <EmojiPicker
+                value={settings.navIcons[key]}
+                label={label}
+                onChange={(emoji) =>
+                  update({ navIcons: { ...settings.navIcons, [key]: emoji } })
+                }
+              />
+              <span className="text-[10px] font-semibold text-slate-400">
+                {label}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {/* Значки плиток на главной */}
+        <p className="mb-2 mt-4 text-xs font-semibold uppercase tracking-wide text-slate-400">
+          Значки плиток на главном экране
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {(
+            [
+              ['notes', 'Заметки'],
+              ['tasks', 'Задачи'],
+              ['habits', 'Привычки'],
+              ['streak', 'Серия'],
+            ] as const
+          ).map(([key, label]) => (
+            <div key={key} className="flex flex-col items-center gap-1">
+              <EmojiPicker
+                value={settings.tileIcons[key]}
+                label={label}
+                onChange={(emoji) =>
+                  update({ tileIcons: { ...settings.tileIcons, [key]: emoji } })
+                }
+              />
+              <span className="text-[10px] font-semibold text-slate-400">
+                {label}
+              </span>
+            </div>
+          ))}
+        </div>
+      </Card>
+
       {/* Валюты */}
       <Card className="animate-slide-up">
-        <h3 className="mb-3 text-sm font-bold text-slate-800 dark:text-slate-100">
-          💱 Валютная пара
+        <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-slate-800 dark:text-slate-100">
+          <CoinsIcon size={16} className="text-brand-500" /> Валютная пара
         </h3>
         <div className="flex items-center gap-3">
-          <Select
+          <Dropdown
             value={settings.currencyFrom}
-            onChange={(e) => update({ currencyFrom: e.target.value })}
-          >
-            {CURRENCIES.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </Select>
+            onChange={(v) => update({ currencyFrom: v })}
+            options={CURRENCIES.map((c) => ({ value: c, label: c }))}
+            className="flex-1"
+          />
           <span className="font-bold text-slate-400">→</span>
-          <Select
+          <Dropdown
             value={settings.currencyTo}
-            onChange={(e) => update({ currencyTo: e.target.value })}
-          >
-            {CURRENCIES.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </Select>
+            onChange={(v) => update({ currencyTo: v })}
+            options={CURRENCIES.map((c) => ({ value: c, label: c }))}
+            className="flex-1"
+          />
         </div>
         <p className="mt-2 text-xs text-slate-400">
           Курс подгружается онлайн и кэшируется для офлайн-просмотра.
@@ -130,8 +338,8 @@ export default function SettingsPage() {
 
       {/* Синхронизация */}
       <Card className="animate-slide-up">
-        <h3 className="mb-3 text-sm font-bold text-slate-800 dark:text-slate-100">
-          🔄 Синхронизация
+        <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-slate-800 dark:text-slate-100">
+          <RefreshIcon size={16} className="text-brand-500" /> Синхронизация
         </h3>
         <p className="mb-4 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
           Зарегистрируйте аккаунт для синхронизации между устройствами.
@@ -143,7 +351,7 @@ export default function SettingsPage() {
           <div className="space-y-3">
             {sync.status === 'error' && sync.lastError ? (
               <div className="flex items-start gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300">
-                <span>⚠️</span>
+                <WarnIcon size={18} />
                 <div>
                   <p className="font-semibold">Не удалось синхронизировать</p>
                   <p className="text-xs">{sync.lastError}</p>
@@ -255,8 +463,8 @@ export default function SettingsPage() {
 
       {/* Напоминания */}
       <Card className="animate-slide-up">
-        <h3 className="mb-3 text-sm font-bold text-slate-800 dark:text-slate-100">
-          🔔 Напоминания
+        <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-slate-800 dark:text-slate-100">
+          <BellIcon size={16} className="text-brand-500" /> Напоминания
         </h3>
         <p className="mb-3 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
           Напоминание о задаче показывается в момент дедлайна: всплывающей
@@ -300,8 +508,8 @@ export default function SettingsPage() {
 
       {/* Данные */}
       <Card className="animate-slide-up">
-        <h3 className="mb-3 text-sm font-bold text-slate-800 dark:text-slate-100">
-          📊 Ваши данные
+        <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-slate-800 dark:text-slate-100">
+          <ChartIcon size={16} className="text-brand-500" /> Ваши данные
         </h3>
         <div className="mb-4 grid grid-cols-3 gap-3">
           {stats.map((s) => (
@@ -309,7 +517,9 @@ export default function SettingsPage() {
               key={s.label}
               className="rounded-2xl border border-white/60 bg-white/60 px-3 py-3 text-center dark:border-white/10 dark:bg-white/5"
             >
-              <p className="text-lg">{s.icon}</p>
+              <p className="text-brand-500">
+                <s.icon size={20} />
+              </p>
               <p className="mt-1 text-xl font-extrabold text-slate-800 dark:text-slate-100">
                 {s.value}
               </p>
@@ -328,15 +538,15 @@ export default function SettingsPage() {
           </div>
         ) : (
           <Button variant="danger" onClick={() => setConfirmReset(true)}>
-            🗑️ Сбросить все данные
+            <TrashIcon size={16} /> Сбросить все данные
           </Button>
         )}
       </Card>
 
       {/* О приложении */}
       <Card className="animate-slide-up">
-        <h3 className="mb-1 text-sm font-bold text-slate-800 dark:text-slate-100">
-          ℹ️ О приложении
+        <h3 className="mb-1 flex items-center gap-2 text-sm font-bold text-slate-800 dark:text-slate-100">
+          <InfoIcon size={16} className="text-brand-500" /> О приложении
         </h3>
         <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">
           «Мой день» — офлайн-помощник с онлайн-функциями. Заметки, задачи и

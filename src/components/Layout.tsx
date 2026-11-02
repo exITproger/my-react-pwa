@@ -1,16 +1,20 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import { useOnlineStatus, useThemeEffect } from '../lib/hooks'
 import { useReminders, useTaskReminderTicker } from '../lib/notifications'
+import { useSettings } from '../lib/storage'
 import { startAutoSync } from '../lib/sync'
 import { useEffect, useRef } from 'react'
+import { ClockIcon, CloseIcon, LogoIcon } from './icons'
+import { DEFAULT_SETTINGS } from '../lib/types'
 
-const navItems = [
-  { to: '/', label: 'Обзор', icon: '🏠', end: true },
-  { to: '/notes', label: 'Заметки', icon: '📝', end: false },
-  { to: '/tasks', label: 'Задачи', icon: '✅', end: false },
-  { to: '/habits', label: 'Привычки', icon: '🔥', end: false },
-  { to: '/settings', label: 'Настройки', icon: '⚙️', end: false },
-]
+/** Пункты навигации; эмодзи берутся из настроек (navIcons). */
+const NAV_BASE = [
+  { to: '/', key: 'home', label: 'Обзор', end: true },
+  { to: '/notes', key: 'notes', label: 'Заметки', end: false },
+  { to: '/tasks', key: 'tasks', label: 'Задачи', end: false },
+  { to: '/habits', key: 'habits', label: 'Привычки', end: false },
+  { to: '/settings', key: 'settings', label: 'Настройки', end: false },
+] as const
 
 function OnlineBadge() {
   const online = useOnlineStatus()
@@ -44,7 +48,9 @@ function ReminderStack() {
           className="animate-slide-up pointer-events-auto w-full max-w-sm rounded-2xl border border-amber-200 bg-amber-50/95 px-4 py-3 shadow-xl backdrop-blur-xl dark:border-amber-400/30 dark:bg-amber-500/15"
         >
           <div className="flex items-start gap-3">
-            <span className="text-lg leading-none">⏰</span>
+            <span className="text-lg leading-none">
+              <ClockIcon size={18} />
+            </span>
             <div className="min-w-0 flex-1">
               <p className="text-[11px] font-bold uppercase tracking-wide text-amber-700 dark:text-amber-200">
                 {item.overdue ? 'Пропущенное напоминание' : 'Напоминание'}
@@ -72,7 +78,7 @@ function ReminderStack() {
               aria-label="Закрыть напоминание"
               className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-slate-500 transition hover:bg-black/5 dark:text-slate-300 dark:hover:bg-white/10"
             >
-              ✕
+              <CloseIcon size={14} />
             </button>
           </div>
         </div>
@@ -84,8 +90,8 @@ function ReminderStack() {
 function Logo() {
   return (
     <div className="flex items-center gap-3">
-      <span className="grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-brand-500 via-violet-500 to-fuchsia-500 text-xl shadow-lg shadow-brand-500/40 transition-transform duration-300 hover:rotate-6 hover:scale-105">
-        🌤️
+      <span className="grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-brand-400 to-brand-600 text-white shadow-lg shadow-brand-500/40 transition-transform duration-300 hover:rotate-6 hover:scale-105">
+        <LogoIcon size={24} />
       </span>
       <div>
         <p className="text-base font-extrabold tracking-tight text-slate-900 dark:text-white">
@@ -102,6 +108,12 @@ function Logo() {
 export default function Layout() {
   useThemeEffect()
   useTaskReminderTicker()
+  const settings = useSettings()
+  const navIcons = settings.navIcons ?? DEFAULT_SETTINGS.navIcons
+  const navItems = NAV_BASE.map((item) => ({
+    ...item,
+    icon: navIcons[item.key as keyof typeof navIcons] ?? '•',
+  }))
 
   // Синхронизация запускается один раз при монтировании Layout.
   const autoStarted = useRef(false)
@@ -129,14 +141,14 @@ export default function Layout() {
                 [
                   'group relative flex items-center gap-3 overflow-hidden rounded-2xl px-3.5 py-3 text-sm font-semibold transition-all duration-300',
                   isActive
-                    ? 'bg-gradient-to-r from-brand-500 to-violet-500 text-white shadow-lg shadow-brand-500/30'
+                    ? 'bg-gradient-to-r from-brand-400 to-brand-600 text-white shadow-lg shadow-brand-500/30'
                     : 'text-slate-500 hover:translate-x-1 hover:bg-white/70 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-white',
                 ].join(' ')
               }
             >
               {({ isActive }) => (
                 <>
-                  <span
+                    <span
                     className={`text-lg leading-none transition-transform duration-300 group-hover:scale-110 ${
                       isActive ? 'drop-shadow' : ''
                     }`}
@@ -186,7 +198,7 @@ export default function Layout() {
               {({ isActive }) => (
                 <>
                   {isActive && (
-                    <span className="absolute top-0 h-1 w-8 rounded-full bg-gradient-to-r from-brand-500 to-violet-500" />
+                    <span className="absolute top-0 h-1 w-8 rounded-full bg-gradient-to-r from-brand-400 to-brand-600" />
                   )}
                   <span
                     className={`text-xl leading-none transition-transform duration-300 ${
