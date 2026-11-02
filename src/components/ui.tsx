@@ -4,7 +4,8 @@ import type {
   ReactNode,
   SelectHTMLAttributes,
 } from 'react'
-import { useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 
 export function Card({
   children,
@@ -168,6 +169,10 @@ export interface DropdownOption {
 /**
  * Красивый выпадающий список вместо системного <select>:
  * анимированная панель, подсветка выбранного, закрытие по клику вне.
+ *
+ * Список рендерится через портал в document.body и позиционируется
+ * фиксированно — поэтому его не обрезают родительские overflow-контейнеры
+ * (модалки, скроллируемые карточки) ни на мобилке, ни на десктопе.
  */
 export function Dropdown({
   value,
@@ -183,11 +188,132 @@ export function Dropdown({
   placeholder?: string
 }) {
   const [open, setOpen] = useState(false)
+  const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
   const current = options.find((o) => o.value === value)
+
+  // Вычисляем позицию списка (fixed) относительно кнопки
+  const updatePosition = useCallback(() => {
+    const el = triggerRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    const listWidth = Math.max(rect.width, 160)
+    let left = rect.left
+    // не вылезаем за правый край
+    if (left + listWidth > window.innerWidth - 8) {
+      left = Math.max(8, window.innerWidth - listWidth - 8)
+    }
+    setPos({ top: rect.bottom + 6, left, width: listWidth })
+  }, [])
+
+  // Пересчитываем позицию при открытии и при скролле/ресайзе
+  useEffect(() => {
+    if (!open) return
+    updatePosition()
+    const onScroll = () => updatePosition()
+    const onResize = () => updatePosition()
+    window.addEventListener('scroll', onScroll, true)
+    window.addEventListener('resize', onResize)
+    return () => {
+      window.removeEventListener('scroll', onScroll, true)
+      window.removeEventListener('resize', onResize)
+    }
+  }, [open, updatePosition])
+
+  // Прокрутка к активному элементу при открытии
+  useEffect(() => {
+    if (open && listRef.current) {
+      const active = listRef.current.querySelector(
+        '[aria-selected="true"]',
+      ) as HTMLElement | null
+      if (active) {
+        active.scrollIntoView({ block: 'nearest' })
+      }
+    }
+  }, [open])
+
+  // Закрытие по клику вне и по Esc
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    const onClick = (e: MouseEvent) => {
+      const target = e.target as Node
+      if (
+        triggerRef.current?.contains(target) ||
+        listRef.current?.contains(target)
+      )
+        return
+      setOpen(false)
+    }
+    document.addEventListener('keydown', onKey)
+    document.addEventListener('mousedown', onClick)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.removeEventListener('mousedown', onClick)
+    }
+  }, [open])
+
+  const list =
+    open && pos ? (
+      <div
+        ref={listRef}
+        role="listbox"
+        style={{
+          position: 'fixed',
+          top: pos.top,
+          left: pos.left,
+          width: pos.width,
+          zIndex: 9999,
+        }}
+        className="animate-pop max-h-64 overflow-y-auto rounded-2xl border border-white/60 bg-white/95 p-2 shadow-xl backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/95"
+      >
+        {options.map((opt) => {
+          const active = opt.value === value
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              role="option"
+              aria-selected={active}
+              onClick={() => {
+                onChange(opt.value)
+                setOpen(false)
+              }}
+              className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-sm font-medium transition ${
+                active
+                  ? 'bg-brand-500 text-white'
+                  : 'text-slate-700 hover:bg-brand-50 dark:text-slate-200 dark:hover:bg-white/10'
+              }`}
+            >
+              {opt.label}
+              {active && (
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M20 6 9 17l-5-5" />
+                </svg>
+              )}
+            </button>
+          )
+        })}
+      </div>
+    ) : null
 
   return (
     <div className={`relative ${className}`}>
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen(!open)}
         aria-haspopup="listbox"
@@ -215,53 +341,8 @@ export function Dropdown({
         </svg>
       </button>
 
-      {open && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div
-            role="listbox"
-            className="animate-pop absolute left-0 top-full z-50 mt-2 w-max max-w-64 rounded-2xl border border-white/60 bg-white/95 p-2 shadow-xl backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/95"
-          >
-            {options.map((opt) => {
-              const active = opt.value === value
-              return (
-                <button
-                  key={opt.value}
-                  type="button"
-                  role="option"
-                  aria-selected={active}
-                  onClick={() => {
-                    onChange(opt.value)
-                    setOpen(false)
-                  }}
-                  className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-sm font-medium transition ${
-                    active
-                      ? 'bg-brand-500 text-white'
-                      : 'text-slate-700 hover:bg-brand-50 dark:text-slate-200 dark:hover:bg-white/10'
-                  }`}
-                >
-                  {opt.label}
-                  {active && (
-                    <svg
-                      width="15"
-                      height="15"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
-                    >
-                      <path d="M20 6 9 17l-5-5" />
-                    </svg>
-                  )}
-                </button>
-              )
-            })}
-          </div>
-        </>
-      )}
+      {/* Рендерим список через портал в body, чтобы его не обрезали overflow-контейнеры */}
+      {typeof document !== 'undefined' && createPortal(list, document.body)}
     </div>
   )
 }
@@ -359,7 +440,8 @@ export function EmojiPicker({
   )
 }
 
-export function ProgressBar({ value }: { value: number }) {  return (
+export function ProgressBar({ value }: { value: number }) {
+  return (
     <div className="h-2.5 w-full overflow-hidden rounded-full bg-black/5 dark:bg-white/10">
       <div
         className="h-full rounded-full bg-gradient-to-r from-brand-400 via-brand-500 to-brand-600 transition-all duration-700 ease-out"
