@@ -25,6 +25,7 @@ import {
   ProgressBar,
   Tag,
   Textarea,
+  useLockBodyScroll,
 } from '../components/ui'
 import {
   BellIcon,
@@ -567,6 +568,7 @@ function TaskEditor({
 }) {
   const [draft, setDraft] = useState({ ...task })
   const [tagInput, setTagInput] = useState('')
+  useLockBodyScroll(true)
 
   function save() {
     onSave({
@@ -591,7 +593,8 @@ function TaskEditor({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 p-0 backdrop-blur-sm sm:items-center sm:p-4"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/60 p-0 backdrop-blur-sm sm:items-center sm:p-4"
+      style={{ height: '100dvh' }}
       onClick={onClose}
     >
       <div

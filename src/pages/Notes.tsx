@@ -17,6 +17,7 @@ import {
   PageHeader,
   Tag,
   Textarea,
+  useLockBodyScroll,
 } from '../components/ui'
 import {
   CloseIcon,
@@ -46,6 +47,7 @@ export default function Notes() {
   const [query, setQuery] = useState('')
   const [activeTag, setActiveTag] = useState<string | null>(null)
   const [draft, setDraft] = useState<Note | null>(null)
+  useLockBodyScroll(!!draft)
   const [tagInput, setTagInput] = useState('')
   /** Заметка, для которой открыто подтверждение удаления. */
   const [confirmId, setConfirmId] = useState<string | null>(null)
@@ -176,7 +178,8 @@ export default function Notes() {
       {/* Модальный редактор */}
       {draft && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 p-0 backdrop-blur-sm sm:items-center sm:p-4"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/60 p-0 backdrop-blur-sm sm:items-center sm:p-4"
+          style={{ height: '100dvh' }}
           onClick={() => setDraft(null)}
         >
           <div

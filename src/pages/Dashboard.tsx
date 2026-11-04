@@ -11,7 +11,7 @@ import {
   type Habit,
   type Task,
 } from '../lib/types'
-import { Button, Card, Dropdown, ProgressBar, Ring, Tag } from '../components/ui'
+import { Button, Card, Dropdown, ProgressBar, Ring, Tag, useLockBodyScroll } from '../components/ui'
 import {
   CloseIcon,
   CoinsIcon,
@@ -77,6 +77,7 @@ export default function Dashboard() {
   const habits = useHabits()
   const settings = useSettings()
   const [currencyOpen, setCurrencyOpen] = useState(false)
+  useLockBodyScroll(currencyOpen)
   const [fromDraft, setFromDraft] = useState(settings.currencyFrom)
   const [toDraft, setToDraft] = useState(settings.currencyTo)
   const { data: currency } = useCurrency(
@@ -241,7 +242,8 @@ export default function Dashboard() {
       {/* Модальное окно смены валютной пары */}
       {currencyOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm"
+          style={{ height: '100dvh' }}
           onClick={() => setCurrencyOpen(false)}
         >
           <div

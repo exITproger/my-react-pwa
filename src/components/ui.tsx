@@ -7,6 +7,21 @@ import type {
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 
+/**
+ * Пока открыто модальное окно — блокируем прокрутку фона (body).
+ * Значение предыдущего overflow восстанавливается при закрытии.
+ */
+export function useLockBodyScroll(active: boolean) {
+  useEffect(() => {
+    if (!active) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = prev
+    }
+  }, [active])
+}
+
 export function Card({
   children,
   className = '',
@@ -193,19 +208,50 @@ export function Dropdown({
   const listRef = useRef<HTMLDivElement>(null)
   const current = options.find((o) => o.value === value)
 
+  // Пока открыт список — фон не скроллится
+  useLockBodyScroll(open)
+
+  // Компактный список (немного пунктов) центрируем посередине экрана,
+  // чтобы на мобильном он не залезал ни на шапку, ни на нижнюю навигацию.
+  const shouldCenter = options.length <= 7
+
   // Вычисляем позицию списка (fixed) относительно кнопки
   const updatePosition = useCallback(() => {
     const el = triggerRef.current
     if (!el) return
     const rect = el.getBoundingClientRect()
-    const listWidth = Math.max(rect.width, 160)
-    let left = rect.left
-    // не вылезаем за правый край
-    if (left + listWidth > window.innerWidth - 8) {
-      left = Math.max(8, window.innerWidth - listWidth - 8)
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+
+    if (shouldCenter) {
+      // Ширина примерно как у кнопки, но не шире вьюпорта минус отступы
+      const listWidth = Math.min(Math.max(rect.width, 200), vw - 32)
+      // Оцениваем высоту панели и ставим её по центру экрана с гарантированными
+      // отступами сверху/снизу — никуда не налезает даже на коротких экранах.
+      const approxHeight = options.length * 44 + 24
+      const maxAllowedHeight = Math.min(vh * 0.6, 360)
+      const effectiveHeight = Math.min(approxHeight, maxAllowedHeight)
+      const top = Math.max(16, (vh - effectiveHeight) / 2)
+      const left = Math.max(
+        8,
+        Math.min(vw - listWidth - 8, rect.left + rect.width / 2 - listWidth / 2),
+      )
+      setPos({ top, left, width: listWidth })
+      return
     }
-    setPos({ top: rect.bottom + 6, left, width: listWidth })
-  }, [])
+
+    // Длинный список на маленьком экране — растягиваем на всю ширину
+    const compactScreen = vw < 640
+    const listWidth = compactScreen ? vw - 32 : Math.max(rect.width, 160)
+    const left = compactScreen
+      ? 16
+      : Math.max(8, Math.min(vw - listWidth - 8, rect.left))
+    // Ниже кнопки может не хватать места — прижимам к нижней границе вьюпорта
+    const approxHeight = Math.min(options.length * 44 + 24, 256 + 16)
+    let top = rect.bottom + 6
+    if (top + approxHeight > vh - 8) top = Math.max(8, vh - approxHeight - 8)
+    setPos({ top, left, width: listWidth })
+  }, [shouldCenter, options.length])
 
   // Пересчитываем позицию при открытии и при скролле/ресайзе
   useEffect(() => {
@@ -258,55 +304,66 @@ export function Dropdown({
 
   const list =
     open && pos ? (
+      // Оверлей на весь экран затемняет его целиком (в т.ч. низ, где на
+      // мобильном может не хватать 100vh из-за адресной строки браузера)
+      // и закрывает список по клику вне.
       <div
-        ref={listRef}
-        role="listbox"
-        style={{
-          position: 'fixed',
-          top: pos.top,
-          left: pos.left,
-          width: pos.width,
-          zIndex: 9999,
-        }}
-        className="animate-pop max-h-64 overflow-y-auto rounded-2xl border border-white/60 bg-white/95 p-2 shadow-xl backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/95"
+        className="fixed inset-0 z-[9998] bg-slate-900/40 backdrop-blur-[2px]"
+        style={{ height: '100dvh' }}
+        onClick={() => setOpen(false)}
       >
-        {options.map((opt) => {
-          const active = opt.value === value
-          return (
-            <button
-              key={opt.value}
-              type="button"
-              role="option"
-              aria-selected={active}
-              onClick={() => {
-                onChange(opt.value)
-                setOpen(false)
-              }}
-              className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-sm font-medium transition ${
-                active
-                  ? 'bg-brand-500 text-white'
-                  : 'text-slate-700 hover:bg-brand-50 dark:text-slate-200 dark:hover:bg-white/10'
-              }`}
-            >
-              {opt.label}
-              {active && (
-                <svg
-                  width="15"
-                  height="15"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="M20 6 9 17l-5-5" />
-                </svg>
-              )}
-            </button>
-          )
-        })}
+        <div
+          ref={listRef}
+          role="listbox"
+          style={{
+            position: 'fixed',
+            top: pos.top,
+            left: pos.left,
+            width: pos.width,
+            zIndex: 9999,
+          }}
+          className={`animate-pop overflow-y-auto rounded-2xl border border-white/60 bg-white/95 p-2 shadow-xl backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/95 ${
+            shouldCenter ? 'max-h-[70vh]' : 'max-h-64'
+          }`}
+        >
+          {options.map((opt) => {
+            const active = opt.value === value
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                role="option"
+                aria-selected={active}
+                onClick={() => {
+                  onChange(opt.value)
+                  setOpen(false)
+                }}
+                className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-sm font-medium transition ${
+                  active
+                    ? 'bg-brand-500 text-white'
+                    : 'text-slate-700 hover:bg-brand-50 dark:text-slate-200 dark:hover:bg-white/10'
+                }`}
+              >
+                {opt.label}
+                {active && (
+                  <svg
+                    width="15"
+                    height="15"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M20 6 9 17l-5-5" />
+                  </svg>
+                )}
+              </button>
+            )
+          })}
+        </div>
       </div>
     ) : null
 
@@ -391,6 +448,7 @@ export function EmojiPicker({
   label?: string
 }) {
   const [open, setOpen] = useState(false)
+  useLockBodyScroll(open)
   return (
     <div className="flex flex-col items-center gap-1">
       <button
@@ -404,7 +462,8 @@ export function EmojiPicker({
       </button>
       {open && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm"
+          style={{ height: '100dvh' }}
           onClick={() => setOpen(false)}
         >
           <div
