@@ -5,7 +5,7 @@ import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
-  base: './',
+  base: '/',
   server: {
     // В разработке запросы /api/* уходят на локальный сервер (npm run server).
     proxy: {
